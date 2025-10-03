@@ -3,26 +3,23 @@ Interface for the HEALPix image domain model in BayesEoR.
 """
 
 import numpy as np
-import astropy_healpix as ahp
 from astropy_healpix import HEALPix
 from astropy_healpix import healpy as hp
 from astropy.coordinates import\
     EarthLocation, AltAz, ICRS, Angle, SkyCoord
 from astropy.time import Time
-import astropy.units as u
+import astropy.units as units
+from astropy.units import Quantity
 from astropy.constants import c
-from scipy.special import j1
+from collections.abc import Sequence
+from functools import reduce
 from pyuvdata import UVBeam
 from pyuvdata import utils as uvutils
+from scipy.special import j1
+import warnings
 
 c_ms = c.to("m/s").value
 
-SECS_PER_HOUR = 60 * 60
-SECS_PER_DAY = SECS_PER_HOUR * 24
-DAYS_PER_SEC = 1.0 / SECS_PER_DAY
-DEGREES_PER_DAY = 360.0
-DEGREES_PER_HOUR = DEGREES_PER_DAY / 24
-DEGREES_PER_SEC = DEGREES_PER_HOUR * 1 / SECS_PER_HOUR
 HERA_LAT_LON_ALT = (
     -30.72152777777791,  # deg
     21.428305555555557,  # deg
@@ -31,169 +28,212 @@ HERA_LAT_LON_ALT = (
 
 class Healpix(HEALPix):
     """
-    Class to store and manipulate HEALPix maps using `astropy_healpix`
-    functions.
+    HEALPix-related functionality for the image domain model.
 
     Parameters
     ----------
-    fov_ra_eor : float
-        Field of view in degrees of the RA axis of the EoR sky model.
-    fov_dec_eor : float, optional
-        Field of view in degrees of the DEC axis of the EoR sky model.
+    # TODO: make sure fov_ra_eor used as Quantity!
+    fov_ra_eor : astropy.units.Quantity or float
+        Field of view, in degrees if not a Quantity, of the RA axis of the
+        EoR sky model.
+    # TODO: make sure fov_dec_eor used as Quantity!
+    fov_dec_eor : astropy.units.Quantity or float, optional
+        Field of view, in degrees if not a Quantity, of the Dec axis of the
+        EoR sky model. Defaults to `fov_ra_eor`.
+    # TODO: make sure fov_ra_fg used as Quantity!
+    fov_ra_fg : astropy.units.Quantity or float, optional
+        Field of view, in degrees if not a Quantity, of the RA axis of the
+        foreground sky model. Must be greater than or equal to `fov_ra_eor`.
         Defaults to `fov_ra_eor`.
-    fov_ra_fg : float, optional
-        Field of view in degrees of the RA axis of the FG sky model.
-    fov_dec_fg : float, optional
-        Field of view in degrees of the DEC axis of the FG sky model.
+    # TODO: make sure fov_dec_fg used as Quantity!
+    fov_dec_fg : astropy.units.Quantity or float, optional
+        Field of view, in degrees if not a Quantity, of the Dec axis of the
+        foreground sky model. Must be greater than or equal to `fov_dec_eor`.
         Defaults to `fov_ra_fg`.
-    simple_za_filter : boolean, optional
-        If True, filter pixels in the FoV by zenith angle only.  Otherwise,
-        filter pixels in a rectangular region set by the FoV values along
-        RA and DEC.
+    simple_za_filter : bool, optional
+        Filter pixels in the FoV by zenith angle only. Otherwise, filter
+        pixels in a rectangular region. See the docstring for
+        :func:`.get_pixel_filter` for more details. We strongly suggest
+        leaving `simple_za_filter` as True as the rectangular pixel selection
+        is not always reliable (please see BayesEoR issue #11 for more
+        details). Defaults to True.
+    # TODO: add single_fov to bayeseor.params and bayeseor.matrices.build
+    single_fov : bool, optional
+        Use a single field of view at the central time step to form the sky
+        model pixel mask(s). Otherwise, calculate the pixel masks for each
+        time and form the total pixel masks as the union of the pixel indices
+        at each time. See the docstring for :func:`.get_pixel_filter` for more
+        details. This setting can be enabled to reproduce the results in
+        Burba+23a (2023MNRAS.520.4443B). Defaults to False.
     nside : int
-        Nside resolution of the HEALPix map.  Defaults to 256.
-    telescope_latlonalt : tuple, optional
+        Nside resolution of the HEALPix map. Defaults to 256.
+    telescope_latlonalt : tuple or list of float, optional
         Tuple containing the latitude, longitude, and altitude of the
-        telescope in degrees, degrees, and meters, respectively.  Defaults
+        telescope in degrees, degrees, and meters, respectively. Defaults
         to the location of the HERA telescope, i.e. (-30.72152777777791, 
         21.428305555555557, 1073.0000000093132).
-    jd_center : float
-        Central time step of the observation in JD2000 format.
+    # TODO: make sure jd_center used as Time!
+    jd_center : astropy.time.Time or float
+        Central time as a Julian date if not a Time.
     nt : int, optional
-        Number of time integrations. Defaults to 1.
-    dt : float, optional
-        Integration time in seconds. Required if ``nt > 1``.
+        Number of times. Defaults to 1.
+    # TODO: make sure dt used as Quantity!
+    dt : astropy.units.Quantity or float, optional
+        Integration time in seconds if not a Quantity. Required if `nt` > 1.
+        Defaults to None.
     beam_type : str, optional
         Can be either a path to a pyuvdata-compatible beam file or one of
-        'uniform', 'gaussian', or 'airy'.  Defaults to 'uniform'.
+        'uniform', 'gaussian', 'airy', 'gausscosine', or 'taperairy'. Defaults
+        to 'uniform'.
     peak_amp : float, optional
-        Peak amplitude of the beam.  Defaults to 1.0.
+        Peak amplitude of the beam. Defaults to 1.0.
+    # TODO: make sure fwhm_deg used as Quantity!
     fwhm_deg : float, optional
-        Full width at half maximum of the beam in degrees.  Required if
-        `beam_type` is 'gaussian' or 'gausscosine'.
-    diam : float, optional
-        Antenna (aperture) diameter in meters.  Used if `beam_type` is 'airy'.
-    cosfreq : float, optional
-        Cosine frequency in inverse radians.  Used if `beam_type` is
-        'gausscosine'.
-    tanh_freq : float, optional
-        Exponential frequency (rate parameter) in inverse radians.  Used if
-        `beam_type` is 'tanhairy'.
+        Full width at half maximum (FWHM) of the beam in degrees if not a
+        Quantity. Used if `beam_type` is 'airy', 'gaussian', or 'gausscosine'.
+        If `beam_type` is 'airy', the effective antenna diameter is calculated
+        from the FWHM at a user-specified frequency.
+    # TODO: make sure diam used as Quantity!
+    diam : astropy.units.Quantity or float, optional
+        Antenna (aperture) diameter in meters if not a Quantity. Used if
+        `beam_type` is 'airy', 'gaussian', or 'gausscosine'. If `beam_type` is
+        'gaussian' or 'gausscosine', the effective full width at half maximum
+        is calculated from `diam` at a user-specified frequency.
+    # TODO: make sure cosfreq used as Quantity!
+    cosfreq : asropy.units.Quantity or float, optional
+        Cosine frequency, in inverse degrees if not a Quantity, which
+        multiplies a Gaussian beam to produce sidelobe-like structure. Used if
+        `beam_type` is 'gausscosine'.
+    # TODO: make sure tanh_freq used as Quantity!
+    tanh_freq : asropy.units.Quantity or float, optional
+        Exponential frequency (rate parameter) in inverse degrees if not a
+        Quantity. Used if `beam_type` is 'tanhairy' to apply an exponential
+        taper to an Airy pattern to suppress sidelobes.
     tanh_sl_red : float, optional
-        Airy sidelobe amplitude reduction as a fractional percent.  For
+        Airy sidelobe amplitude reduction as a fractional percent. For
         example, passing 0.99 reduces the sidelobes by 0.01, i.e. two orders
-        of magnitude.  Used if `beam_type` is 'tanhairy'.
+        of magnitude. Used if `beam_type` is 'tanhairy'.
     pol : str, optional
-        Polarization string.  Can be 'xx', 'yy', or 'pI'.  Only used if
-        `beam_type` is a path to a pyuvdata-compatible beam file.  Defaults to
+        Polarization string. Can be 'xx', 'yy', or 'pI'. Only used if
+        `beam_type` is a path to a pyuvdata-compatible beam file. Defaults to
         'xx'.
     freq_interp_kind : str, optional
         Frequency interpolation kind. Please see `scipy.interpolate.interp1d`
-        for valid options and more details.  Defaults to 'cubic'.
+        for valid options and more details. Defaults to 'cubic'.
 
     """
     def __init__(
         self,
-        fov_ra_eor=None,
-        fov_dec_eor=None,
-        fov_ra_fg=None,
-        fov_dec_fg=None,
-        simple_za_filter=False,
-        nside=256,
-        telescope_latlonalt=HERA_LAT_LON_ALT,
-        jd_center=None,
-        nt=1,
-        dt=None,
-        beam_type=None,
-        peak_amp=1.0,
-        fwhm_deg=None,
-        diam=None,
-        cosfreq=None,
-        tanh_freq=None,
-        tanh_sl_red=None,
-        pol="xx",
-        freq_interp_kind="cubic"
+        *,
+        fov_ra_eor : Quantity | float,
+        fov_dec_eor : Quantity | float | None = None,
+        fov_ra_fg : Quantity | float | None = None,
+        fov_dec_fg : Quantity | float | None = None,
+        simple_za_filter : bool = True,
+        single_fov : bool = False,
+        nside : int = 256,
+        telescope_latlonalt : tuple[float] | list[float] = HERA_LAT_LON_ALT,
+        jd_center : Time | float | None = None,
+        nt : int = 1,
+        dt : Quantity | float | None = None,
+        beam_type : str | None = None,
+        peak_amp : float = 1.0,
+        fwhm_deg : Quantity | float | None = None,
+        diam : Quantity | float | None = None,
+        cosfreq : Quantity | float | None = None,
+        tanh_freq : Quantity | float | None = None,
+        tanh_sl_red : float | None = None,
+        pol : str = "xx",
+        freq_interp_kind : str = "cubic"
     ):
+        if not simple_za_filter:
+            warnings.warn(
+                "It is advised to set `simple_za_filter` to True to avoid "
+                "issues with the rectangular pixel selection.  Please see "
+                "BayesEoR issue #11 for more details.  `simple_za_filter` "
+                "should only be set to False if reproducing results from "
+                "Burba+23a (2023MNRAS.520.4443B)."
+            )
+
         # Use HEALPix as parent class to get useful astropy_healpix functions
         super().__init__(nside, frame=ICRS())
 
-        assert fov_ra_eor is not None, \
-            "Missing required keyword argument: fov_ra_eor ."
-
-        self.fov_ra_eor = fov_ra_eor
+        if not isinstance(fov_ra_eor, Quantity):
+            fov_ra_eor = Quantity(fov_ra_eor, unit="deg")
+        self.fov_ra_eor = fov_ra_eor.to("deg")
         if fov_dec_eor is None:
-            self.fov_dec_eor = self.fov_ra_eor
-        else:
-            self.fov_dec_eor = fov_dec_eor
-        
-        if fov_ra_fg is None:
-            self.fov_ra_fg = self.fov_ra_eor
-            self.fov_dec_fg = self.fov_dec_eor
-            self.fovs_match = True
-        else:
-            assert fov_ra_fg >= fov_ra_eor, \
-                "fov_ra_fg must be greater than or equal to fov_ra_eor."
-            self.fov_ra_fg = fov_ra_fg
-            if fov_dec_fg is None:
-                self.fov_dec_fg = self.fov_ra_fg
-            else:
-                self.fov_dec_fg = fov_dec_fg
-            self.fovs_match = np.logical_and(
-                self.fov_ra_eor == self.fov_ra_fg,
-                self.fov_dec_eor == self.fov_dec_fg
-            )
+            fov_dec_eor = fov_ra_eor
+        elif not isinstance(fov_dec_eor, Quantity):
+            fov_dec_eor = Quantity(fov_dec_eor, unit="deg")
+        self.fov_dec_eor = fov_dec_eor.to("deg")
 
-        self.pixel_area_sr = self.pixel_area.to("sr").value
-        self.tele_lat, self.tele_lon, self.tele_alt = telescope_latlonalt
+        if fov_ra_fg is None:
+            fov_ra_fg = fov_ra_eor
+        else:
+            if not isinstance(fov_ra_fg, Quantity):
+                fov_ra_fg = Quantity(fov_ra_fg, unit="deg")
+            if fov_ra_fg.to("deg") < fov_ra_eor.to("deg"):
+                raise ValueError(
+                    "fov_ra_fg must be greater than or equal to fov_ra_eor"
+                )
+        self.fov_ra_fg = fov_ra_fg.to("deg")
+        if fov_dec_fg is None:
+            fov_dec_fg = fov_ra_fg
+        else:
+            if not isinstance(fov_dec_fg, Quantity):
+                fov_dec_fg = Quantity(fov_dec_fg, unit="deg")
+            if fov_dec_fg.to("deg") < fov_dec_eor.to("deg"):
+                raise ValueError(
+                    "fov_dec_fg must be greater than or equal to fov_dec_eor"
+                )
+        self.fov_dec_fg = fov_dec_fg.to("deg")
+
+        self.fovs_match = np.logical_and(
+            self.fov_ra_eor == self.fov_ra_fg,
+            self.fov_dec_eor == self.fov_dec_fg
+        )
+        
+        self.tele_lat = telescope_latlonalt[0] * units.deg
+        self.tele_lon = telescope_latlonalt[1] * units.deg
+        self.tele_alt = telescope_latlonalt[2] * units.m
         # Set telescope location
         telescope_xyz = uvutils.XYZ_from_LatLonAlt(
-            self.tele_lat * np.pi / 180,
-            self.tele_lon * np.pi / 180,
-            self.tele_alt
+            self.tele_lat.to("rad").value,
+            self.tele_lon.to("rad").value,
+            self.tele_alt.to("m").value
         )
-        self.telescope_location = EarthLocation.from_geocentric(
-            *telescope_xyz, unit="m"
-        )
+        self.tele_loc = EarthLocation.from_geocentric(*telescope_xyz, unit="m")
 
-        # Calculate field center in (RA, DEC)
-        self.jd_center = jd_center
-        t = Time(self.jd_center, scale="utc", format="jd")
-        zen = AltAz(
-            alt=Angle("90d"),
-            az=Angle("0d"),
-            obstime=t,
-            location=self.telescope_location
-        )
-        zen_radec = zen.transform_to(ICRS())
-        self.field_center = (zen_radec.ra.deg, zen_radec.dec.deg)
-
-        # Set time axis params for calculating (l(t),  m(t))
+        # Set time axis params for calculating (l(t),  m(t), n(t))
         self.nt = nt
+        if jd_center is not None and not isinstance(jd_center, Quantity):
+            jd_center = Time(jd_center, format="jd")
+        self.jd_center = jd_center
+        if dt is not None and not isinstance(dt, Quantity):
+            dt = Quantity(dt, unit="s")
         self.dt = dt
         if self.nt % 2:
-            self.time_inds = np.arange(-(self.nt // 2), self.nt // 2 + 1)
+            self.time_inds = np.arange(-(self.nt//2), self.nt//2 + 1)
         else:
-            self.time_inds = np.arange(-(self.nt // 2), self.nt // 2)
+            self.time_inds = np.arange(-(self.nt//2), self.nt//2)
         # Calculate JD per integration from `jd_center`
         if self.dt is not None:
-            self.jds = (
-                self.jd_center
-                + self.time_inds * self.dt * DAYS_PER_SEC
-            )
+            self.jds = self.jd_center + self.time_inds*self.dt
         else:
             self.jds = np.array([self.jd_center])
+
         # Calculate pointing center per integration
         self.pointing_centers = []
         for jd in self.jds:
-            t = Time(jd, scale="utc", format="jd")
             zen = AltAz(
-                alt=Angle("90d"),
-                az=Angle("0d"),
-                obstime=t,
-                location=self.telescope_location
+                alt=90*units.deg,
+                az=0*units.deg,
+                obstime=jd,
+                location=self.tele_loc
             )
             zen_radec = zen.transform_to(ICRS())
             self.pointing_centers.append((zen_radec.ra.deg, zen_radec.dec.deg))
+        self.field_center = self.pointing_centers[self.nt//2]
 
         # Beam params
         if beam_type is not None:
@@ -203,8 +243,10 @@ class Healpix(HEALPix):
                     "uniform", "gaussian", "airy", "gausscosine", "taperairy",
                     "tanhairy"
                 ]
-                assert beam_type in allowed_types, \
-                    f"Only {', '.join(allowed_types)} beams are supported."
+                if not beam_type in allowed_types:
+                    raise ValueError(
+                        f"Only {', '.join(allowed_types)} beams are supported."
+                    )
                 self.beam_type = beam_type
                 self.uvb = None
             else:
@@ -228,163 +270,202 @@ class Healpix(HEALPix):
             self.uvb = None
         self.peak_amp = peak_amp
 
-        if beam_type == "gaussian":
+        if beam_type in ["gaussian", "airy", "taperairy"]:
             required_params = [diam, fwhm_deg]
-            assert self._check_required_params(required_params, all_req=False),\
-                "If using a Gaussian beam, must pass either " \
-                "'fwhm_deg' or 'diam'."
-        elif beam_type == "airy":
-            required_params = [diam, fwhm_deg]
-            assert self._check_required_params(required_params, all_req=False),\
-                "If using an Airy beam, must pass either " \
-                "'fwhm_deg' or 'diam'."
-        elif beam_type == "taperairy":
-            required_params = [diam, fwhm_deg]
-            assert self._check_required_params(required_params), \
-                "If using a taperairy beam, must pass " \
-                "'diam' and 'fwhm_deg'."
+            if not self._check_required_params(required_params, all_req=False):
+                raise ValueError(
+                    f"If using a {beam_type} beam, must pass either "
+                    "'fwhm_deg' or 'diam'."
+                )
         elif beam_type == "gausscosine":
             required_params = [fwhm_deg, cosfreq]
-            assert self._check_required_params(required_params), \
-                "If using a gausscosine beam, must pass " \
-                "'fwhm_deg' and 'cosfreq'."
+            if not self._check_required_params(required_params):
+                raise ValueError(
+                    "If using a gausscosine beam, must pass 'fwhm_deg' and "
+                    "'cosfreq'."
+                )
         elif beam_type == "tanhairy":
             required_params = [diam, tanh_freq, tanh_sl_red]
-            assert self._check_required_params(required_params), \
-                "If using a tanhairy beam, must pass " \
-                "'diam', 'tanh_freq', and 'tanh_sl_red'."
+            if not self._check_required_params(required_params):
+                raise ValueError(
+                    "If using a tanhairy beam, must pass 'diam', 'tanh_freq', "
+                    "and 'tanh_sl_red'."
+                )
+        if fwhm_deg is not None and not isinstance(fwhm_deg, Quantity):
+            fwhm_deg = Quantity(fwhm_deg, unit="deg")
+        if diam is not None and not isinstance(diam, Quantity):
+            diam = Quantity(diam, unit="m")
+        if cosfreq is not None and not isinstance(cosfreq, Quantity):
+            cosfreq = Quantity(cosfreq, unit="1/deg")
+        if tanh_freq is not None and not isinstance(tanh_freq, Quantity):
+            tanh_freq = Quantity(tanh_freq, unit="1/deg")
         self.fwhm_deg = fwhm_deg
         self.diam = diam
         self.cosfreq = cosfreq
         self.tanh_freq = tanh_freq
         self.tanh_sl_red = tanh_sl_red
 
-        # Pixel filters
-        self.simple_za_filter = simple_za_filter
-        pix_eor, ra_eor, dec_eor = self.get_pixel_filter(
-            self.fov_ra_eor, self.fov_dec_eor, return_radec=True,
-            simple_za_filter=self.simple_za_filter
-        )
-        self.pix_eor = pix_eor
-        self.ra_eor = ra_eor
-        self.dec_eor = dec_eor
-        self.npix_fov_eor = self.pix_eor.size
+        # # Pixel filters
+        # self.simple_za_filter = simple_za_filter
+        # pix_eor, ra_eor, dec_eor = self.get_pixel_filter(
+        #     self.fov_ra_eor, self.fov_dec_eor, return_radec=True,
+        #     simple_za_filter=self.simple_za_filter
+        # )
+        # self.pix_eor = pix_eor
+        # self.ra_eor = ra_eor
+        # self.dec_eor = dec_eor
+        # self.npix_fov_eor = self.pix_eor.size
 
-        if self.fovs_match:
-            self.pix_fg = self.pix_eor.copy()
-            self.ra_fg = self.ra_eor.copy()
-            self.dec_fg = self.dec_eor.copy()
-            self.npix_fov_fg = self.pix_fg.size
-        else:
-            pix_fg, ra_fg, dec_fg = self.get_pixel_filter(
-                self.fov_ra_fg, self.fov_dec_fg, return_radec=True,
-                simple_za_filter=self.simple_za_filter
-            )
-            self.pix_fg = pix_fg
-            self.npix_fov_fg = self.pix_fg.size
-            self.ra_fg = ra_fg
-            self.dec_fg = dec_fg
-        self.pix = self.pix_fg
-        self.ra = self.ra_fg
-        self.dec = self.dec_fg
-        self.npix_fov = self.npix_fov_fg
-        self.fov_ra = self.fov_ra_fg
-        self.fov_dec = self.fov_dec_fg
-        # If the FoV values of the two models are different, so to are their
-        # HEALPix pixel index arrays.  This mask allows you to take a set of
-        # pixel values for the EoR model and propagate them into the FG model.
-        self.eor_to_fg_pix = np.in1d(self.pix_fg, self.pix_eor)
+        # if self.fovs_match:
+        #     self.pix_fg = self.pix_eor.copy()
+        #     self.ra_fg = self.ra_eor.copy()
+        #     self.dec_fg = self.dec_eor.copy()
+        #     self.npix_fov_fg = self.pix_fg.size
+        # else:
+        #     pix_fg, ra_fg, dec_fg = self.get_pixel_filter(
+        #         self.fov_ra_fg, self.fov_dec_fg, return_radec=True,
+        #         simple_za_filter=self.simple_za_filter
+        #     )
+        #     self.pix_fg = pix_fg
+        #     self.npix_fov_fg = self.pix_fg.size
+        #     self.ra_fg = ra_fg
+        #     self.dec_fg = dec_fg
+        # self.pix = self.pix_fg
+        # self.ra = self.ra_fg
+        # self.dec = self.dec_fg
+        # self.npix_fov = self.npix_fov_fg
+        # self.fov_ra = self.fov_ra_fg
+        # self.fov_dec = self.fov_dec_fg
+        # # If the FoV values of the two models are different, so to are their
+        # # HEALPix pixel index arrays.  This mask allows you to take a set of
+        # # pixel values for the EoR model and propagate them into the FG model.
+        # self.eor_to_fg_pix = np.in1d(self.pix_fg, self.pix_eor)
 
+    # TODO: update function name?
     def get_pixel_filter(
         self,
-        fov_ra,
-        fov_dec,
-        return_radec=False,
-        inverse=False,
-        simple_za_filter=True
+        *,
+        fov_ra : Quantity | float,
+        fov_dec : Quantity | float | None = None,
+        return_radec : bool = False,
+        inverse : bool = False,
+        simple_za_filter : bool = True,
+        single_fov : bool = False
     ):
         """
         Return HEALPix pixel indices lying inside an observed region.
 
-        This function gets the HEALPix pixel indices for all pixel centers
-        lying inside
-
-            - a rectangle with equal arc length on all sides if
-              `simple_za_filter` is True
-            - a circle with radius `fov_ra` if `simple_za_filter` is False
-
         Parameters
         ----------
         fov_ra : float
-            Field of view in degrees of the RA axis.
-        fov_dec : float
-            Field of view in degrees of the DEC axis.
+            Field of view in degrees if not a Quantity. If `fov_dec` is None,
+            `fov_ra` represents the diameter of a circular region or the arc
+            length of each side of a rectangular region centered on each
+            pointing center if `single_fov` is False or only the pointing
+            center at the central time, `self.jd_center`, if `single_fov` is
+            True.
+        fov_dec : float, optional
+            Field of view of the DEC axis in degrees if not a Quantity.
+            `fov_dec` is only used if `simple_za_filter` is False and sets
+            the arc length along the DEC axis of the rectangular pixel
+            selection. Defaults to `fov_ra`.
         return_radec : bool, optional
             Return the (RA, DEC) coordinates associated with each pixel center.
             Defaults to False.
-        inverse : boolean, optional
-            If False, return the pixels within the observed region.
-            If True, return the pixels outside the observed region.
-        simple_za_filter : boolean, optional
-            If True (default), return the pixels inside a circular region
-            defined by ``za <= fov_ra/2`` where `za` is the zenith angle.
-            Otherwise, return the pixels inside a rectangular region with equal
-            arc length on all sides.
+        inverse : bool, optional
+            Return the pixels within (outside) the observed region if True
+            (False). Defaults to True.
+        simple_za_filter : bool, optional
+            Return the pixels inside a circular region with diameter `fov_ra`
+            (True, default). Otherwise, return the pixels inside a rectangular
+            region with equal arc length on all sides. Defaults to True.
+        single_fov : bool, optional
+            Use only the central time to form the pixel mask. Otherwise,
+            calculate the pixel mask as the union of masks across all times.
+            `single_fov` should be set to True to reproduce results from
+            Burba+23a (2023MNRAS.520.4443B). Defaults to False.
 
         Returns
         -------
         pix : numpy.ndarray
-            HEALPix pixel numbers lying within the observed region set by
-            `fov_ra` and `fov_dec`.
+            HEALPix pixel indices.
         ra : numpy.ndarray
-            RA values for each pixel center.  Only returned if `return_radec`
+            RA values for each pixel center. Only returned if `return_radec`
             is True.
         dec : numpy.ndarray
-            DEC values for each pixel center.  Only returned if `return_radec`
+            DEC values for each pixel center. Only returned if `return_radec`
             is True.
         
         Notes
         -----
         * The rectangular pixel selection (`simple_za_filter` is False) has
-          been left for posterity.  It has been found to be flawed when the
-          field of view along right ascension becomes large (see issue #11
-          in the BayesEoR repo for more details).  We advise setting
-          `simple_za_filter` to True (the default) to avoid any potential
-          issues with the rectangular pixel selections.
+          been left for posterity. It has been found to be flawed (see issue
+          #11 in the BayesEoR repo for more details). We advise setting
+          `simple_za_filter` to True (default) to avoid any potential issues
+          with the rectangular pixel selection.
 
         """
-        lons, lats = hp.pix2ang(
-            self.nside,
-            np.arange(self.npix),
-            lonlat=True
-        )
-        if simple_za_filter:
-            _, _, _, _, za = self.calc_lmn_from_radec(
-                self.jd_center, lons, lats, return_azza=True
-            )
-            max_za = np.deg2rad(fov_ra) / 2
-            pix = np.where(za <= max_za)[0]
-        else:
-            thetas = (90 - lats) * np.pi / 180
-            if self.field_center[0] - fov_ra/2 < 0:
-                lons[lons > 180] -= 360  # lons in (-180, 180]
-            lons_inds = np.logical_and(
-                (lons - self.field_center[0])*np.sin(thetas) >= -fov_ra/2,
-                (lons - self.field_center[0])*np.sin(thetas) <= fov_ra/2,
+        if isinstance(fov_ra, Quantity):
+            fov_ra = fov_ra.to("deg").value
+        if fov_dec is None:
+            fov_dec = fov_ra
+        elif isinstance(fov_dec, Quantity):
+            fov_dec = fov_dec.to("deg").value
+        ras, decs = hp.pix2ang(self.nside, np.arange(self.npix), lonlat=True)
+
+        pointing_centers = self.pointing_centers
+        jds = self.jds
+        if single_fov:
+            pointing_centers = [pointing_centers[self.nt//2]]
+            jds = [jds[self.nt//2]]
+        pix_all = []
+        for jd, ra_dec in zip(jds, pointing_centers):
+            if simple_za_filter:
+                _, _, _, _, za = self.calc_lmn_from_radec(
+                    jd.jd, ras, decs, return_azza=True
                 )
-            lats_inds = np.logical_and(
-                lats >= self.field_center[1] - fov_dec / 2,
-                lats <= self.field_center[1] + fov_dec / 2
+                # Because of the non-linear relationship between (RA, Dec)
+                # and zenith angle, we need to compute the zenith angle
+                # corresponding to the location of the edge of a circular
+                # patch of sky centered on `ra_dec` with a diameter of
+                # `fov_ra` (radius of `fov_ra/2`).
+                radec_edge = SkyCoord(
+                    (ra_dec[0] + fov_ra/2)*units.deg,
+                    ra_dec[1]*units.deg,
+                    frame="icrs"
                 )
-            if inverse:
-                pix = np.where(np.logical_not(lons_inds * lats_inds))[0]
+                altaz_edge = radec_edge.transform_to(
+                    AltAz(obstime=jd, location=self.tele_loc)
+                )
+                max_za = np.pi/2 - altaz_edge.alt.rad
+                if inverse:
+                    pix = np.where(za > max_za)[0]
+                else:
+                    pix = np.where(za <= max_za)[0]
             else:
-                pix = np.where(lons_inds * lats_inds)[0]
-            lons[lons < 0] += 360  # RA in [0, 360)
+                thetas = (90 - decs) * np.pi/180
+                if ra_dec[0] - fov_ra/2 < 0:
+                    ras[ras > 180] -= 360  # RA in (-180, 180]
+                ras_inds = np.logical_and(
+                    (ras - ra_dec[0])*np.sin(thetas) >= -fov_ra/2,
+                    (ras - ra_dec[0])*np.sin(thetas) <= fov_ra/2,
+                )
+                decs_inds = np.logical_and(
+                    decs >= ra_dec[1] - fov_dec/2,
+                    decs <= ra_dec[1] + fov_dec/2
+                )
+                if inverse:
+                    pix = np.where(np.logical_not(ras_inds * decs_inds))[0]
+                else:
+                    pix = np.where(ras_inds * decs_inds)[0]
+                ras[ras < 0] += 360  # RA in [0, 360)
+            pix_all.append(pix)
+
+        pix_unique = reduce(np.union1d, pix_all)
         if not return_radec:
-            return pix
+            return pix_unique
         else:
-            return pix, lons[pix], lats[pix]
+            return pix_unique, ras[pix_unique], decs[pix_unique]
     
     def get_extent_ra_dec(self, fov_ra, fov_dec, fov_fac=1.0):
         """
@@ -430,9 +511,9 @@ class Healpix(HEALPix):
             RA values in degrees.
         dec : numpy.ndarray
             DEC values in degrees.
-        return_azza : boolean
+        return_azza : bool
             If True, return both (l, m, n) and (az, za) coordinate arrays.
-            Otherwise return only (l, m, n).  Defaults to 'False'.
+            Otherwise return only (l, m, n). Defaults to 'False'.
         radec_offset : tuple of floats
             Will likely be deprecated.
 
@@ -454,9 +535,9 @@ class Healpix(HEALPix):
         if not isinstance(time, Time):
             time = Time(time, format="jd")
 
-        skycoord = SkyCoord(ra*u.deg, dec*u.deg, frame="icrs")
+        skycoord = SkyCoord(ra*units.deg, dec*units.deg, frame="icrs")
         altaz = skycoord.transform_to(
-            AltAz(obstime=time, location=self.telescope_location)
+            AltAz(obstime=time, location=self.tele_loc)
         )
         az = altaz.az.rad
         za = np.pi/2 - altaz.alt.rad
@@ -639,7 +720,7 @@ class Healpix(HEALPix):
         tanh_freq : float, optional
             Exponential frequency (rate parameter) in inverse radians.
         tanh_sl_red : float, optional
-            Airy sidelobe amplitude reduction as a fractional percent.  For
+            Airy sidelobe amplitude reduction as a fractional percent. For
             example, passing 0.99 reduces the sidelobes by 0.01, i.e. two
             orders of magnitude.
         
@@ -721,7 +802,7 @@ class Healpix(HEALPix):
         required_params : iterable
             Iterable of param values.
         all_req : bool
-            If True, require all params are not None.  Otherwise, require
+            If True, require all params are not None. Otherwise, require
             that only one param is not None. Defaults to True.
 
         """
