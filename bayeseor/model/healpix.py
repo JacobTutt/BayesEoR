@@ -6,12 +6,12 @@ import numpy as np
 from astropy_healpix import HEALPix
 from astropy_healpix import healpy as hp
 from astropy.coordinates import\
-    EarthLocation, AltAz, ICRS, Angle, SkyCoord
+    EarthLocation, AltAz, ICRS, SkyCoord
+from astropy.coordinates.earth import OMEGA_EARTH
 from astropy.time import Time
 import astropy.units as units
 from astropy.units import Quantity
 from astropy.constants import c
-from collections.abc import Sequence
 from functools import reduce
 from pyuvdata import UVBeam
 from pyuvdata import utils as uvutils
@@ -305,43 +305,67 @@ class Healpix(HEALPix):
         self.tanh_freq = tanh_freq
         self.tanh_sl_red = tanh_sl_red
 
-        # # Pixel filters
-        # self.simple_za_filter = simple_za_filter
-        # pix_eor, ra_eor, dec_eor = self.get_pixel_filter(
-        #     self.fov_ra_eor, self.fov_dec_eor, return_radec=True,
-        #     simple_za_filter=self.simple_za_filter
-        # )
-        # self.pix_eor = pix_eor
-        # self.ra_eor = ra_eor
-        # self.dec_eor = dec_eor
-        # self.npix_fov_eor = self.pix_eor.size
+        # Pixel filters
+        self.simple_za_filter = simple_za_filter
+        self.single_fov = single_fov
+        if not self.single_fov:
+            # Effective FoV along the RA axis due to combining multiple
+            # FoVs across all times
+            obs_ang_extent = (
+                # Duration of observation in seconds
+                self.dt.to("s") * (self.nt - 1)
+                # Angular speed of Earth at equator
+                * (OMEGA_EARTH * units.rad).to("deg/s")
+                # Correct for angular speed at telescope latitude
+                * np.cos(self.tele_lat.to("rad").value)
+            )
+            self.fov_ra_eor_eff = obs_ang_extent + self.fov_ra_eor
+        pix_eor, ra_eor, dec_eor = self.get_pixel_filter(
+            fov_ra=self.fov_ra_eor,
+            fov_dec=self.fov_dec_eor,
+            return_radec=True,
+            simple_za_filter=self.simple_za_filter,
+            single_fov=self.single_fov
+        )
+        self.pix_eor = pix_eor
+        self.ra_eor = ra_eor
+        self.dec_eor = dec_eor
+        self.npix_fov_eor = self.pix_eor.size
 
-        # if self.fovs_match:
-        #     self.pix_fg = self.pix_eor.copy()
-        #     self.ra_fg = self.ra_eor.copy()
-        #     self.dec_fg = self.dec_eor.copy()
-        #     self.npix_fov_fg = self.pix_fg.size
-        # else:
-        #     pix_fg, ra_fg, dec_fg = self.get_pixel_filter(
-        #         self.fov_ra_fg, self.fov_dec_fg, return_radec=True,
-        #         simple_za_filter=self.simple_za_filter
-        #     )
-        #     self.pix_fg = pix_fg
-        #     self.npix_fov_fg = self.pix_fg.size
-        #     self.ra_fg = ra_fg
-        #     self.dec_fg = dec_fg
-        # self.pix = self.pix_fg
-        # self.ra = self.ra_fg
-        # self.dec = self.dec_fg
-        # self.npix_fov = self.npix_fov_fg
-        # self.fov_ra = self.fov_ra_fg
-        # self.fov_dec = self.fov_dec_fg
-        # # If the FoV values of the two models are different, so to are their
-        # # HEALPix pixel index arrays.  This mask allows you to take a set of
-        # # pixel values for the EoR model and propagate them into the FG model.
-        # self.eor_to_fg_pix = np.in1d(self.pix_fg, self.pix_eor)
+        if self.fovs_match:
+            self.pix_fg = self.pix_eor.copy()
+            self.ra_fg = self.ra_eor.copy()
+            self.dec_fg = self.dec_eor.copy()
+            self.npix_fov_fg = self.pix_fg.size
+            if not self.single_fov:
+                self.fov_ra_fg_eff = self.fov_ra_eor_eff
+        else:
+            pix_fg, ra_fg, dec_fg = self.get_pixel_filter(
+                fov_ra=self.fov_ra_fg,
+                fov_dec=self.fov_dec_fg,
+                return_radec=True,
+                simple_za_filter=self.simple_za_filter,
+                single_fov=self.single_fov
+            )
+            self.pix_fg = pix_fg
+            self.npix_fov_fg = self.pix_fg.size
+            self.ra_fg = ra_fg
+            self.dec_fg = dec_fg
+            if not self.single_fov:
+                self.fov_ra_fg_eff = obs_ang_extent + self.fov_ra_fg
+        self.pix = self.pix_fg
+        self.ra = self.ra_fg
+        self.dec = self.dec_fg
+        self.npix_fov = self.npix_fov_fg
+        self.fov_ra = self.fov_ra_fg
+        self.fov_dec = self.fov_dec_fg
+        if not self.single_fov:
+            self.fov_ra_eff = self.fov_ra_fg_eff
+        # If the FoV values of the two models are different, so to are their
+        # HEALPix pixel index arrays.  This mask allows you to take a set of
+        # pixel values for the EoR model and propagate them into the FG model.
+        self.eor_to_fg_pix = np.in1d(self.pix_fg, self.pix_eor)
 
-    # TODO: update function name?
     def get_pixel_filter(
         self,
         *,
@@ -357,14 +381,14 @@ class Healpix(HEALPix):
 
         Parameters
         ----------
-        fov_ra : float
+        fov_ra : astropy.units.Quantity or float
             Field of view in degrees if not a Quantity. If `fov_dec` is None,
             `fov_ra` represents the diameter of a circular region or the arc
             length of each side of a rectangular region centered on each
             pointing center if `single_fov` is False or only the pointing
             center at the central time, `self.jd_center`, if `single_fov` is
             True.
-        fov_dec : float, optional
+        fov_dec : astropy.units.Quantity or float, optional
             Field of view of the DEC axis in degrees if not a Quantity.
             `fov_dec` is only used if `simple_za_filter` is False and sets
             the arc length along the DEC axis of the rectangular pixel
@@ -424,25 +448,16 @@ class Healpix(HEALPix):
                 _, _, _, _, za = self.calc_lmn_from_radec(
                     jd.jd, ras, decs, return_azza=True
                 )
-                # Because of the non-linear relationship between (RA, Dec)
-                # and zenith angle, we need to compute the zenith angle
-                # corresponding to the location of the edge of a circular
-                # patch of sky centered on `ra_dec` with a diameter of
-                # `fov_ra` (radius of `fov_ra/2`).
-                radec_edge = SkyCoord(
-                    (ra_dec[0] + fov_ra/2)*units.deg,
-                    ra_dec[1]*units.deg,
-                    frame="icrs"
-                )
-                altaz_edge = radec_edge.transform_to(
-                    AltAz(obstime=jd, location=self.tele_loc)
-                )
-                max_za = np.pi/2 - altaz_edge.alt.rad
                 if inverse:
-                    pix = np.where(za > max_za)[0]
+                    pix = np.where(za > np.deg2rad(fov_ra/2))[0]
                 else:
-                    pix = np.where(za <= max_za)[0]
+                    pix = np.where(za <= np.deg2rad(fov_ra/2))[0]
             else:
+                # This rectangular pixel selection functionality has been left
+                # in place for posterity only. It can be used to reproduce
+                # results from Burba+23a (2023MNRAS.520.4443B), otherwise it
+                # should not be used. Please see BayesEoR issue #11 for more
+                # details.
                 thetas = (90 - decs) * np.pi/180
                 if ra_dec[0] - fov_ra/2 < 0:
                     ras[ras > 180] -= 360  # RA in (-180, 180]
