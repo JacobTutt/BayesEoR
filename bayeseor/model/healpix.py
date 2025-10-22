@@ -7,7 +7,6 @@ from astropy_healpix import HEALPix
 from astropy_healpix import healpy as hp
 from astropy.coordinates import\
     EarthLocation, AltAz, ICRS, SkyCoord
-from astropy.coordinates.earth import OMEGA_EARTH
 from astropy.time import Time
 import astropy.units as units
 from astropy.units import Quantity
@@ -308,18 +307,6 @@ class Healpix(HEALPix):
         # Pixel filters
         self.simple_za_filter = simple_za_filter
         self.single_fov = single_fov
-        if not self.single_fov:
-            # Effective FoV along the RA axis due to combining multiple
-            # FoVs across all times
-            obs_ang_extent = (
-                # Duration of observation in seconds
-                self.dt.to("s") * (self.nt - 1)
-                # Angular speed of Earth at equator
-                * (OMEGA_EARTH * units.rad).to("deg/s")
-                # Correct for angular speed at telescope latitude
-                * np.cos(self.tele_lat.to("rad").value)
-            )
-            self.fov_ra_eor_eff = obs_ang_extent + self.fov_ra_eor
         pix_eor, ra_eor, dec_eor = self.get_pixel_filter(
             fov_ra=self.fov_ra_eor,
             fov_dec=self.fov_dec_eor,
@@ -331,6 +318,16 @@ class Healpix(HEALPix):
         self.ra_eor = ra_eor
         self.dec_eor = dec_eor
         self.npix_fov_eor = self.pix_eor.size
+        if not self.single_fov:
+            # Effective FoV along the RA axis due to combining multiple
+            # FoVs across all times
+            skycoord = SkyCoord(
+                self.ra_eor*units.deg, self.dec_eor*units.deg, frame="icrs"
+            )
+            altaz = skycoord.transform_to(
+                AltAz(obstime=self.jd_center, location=self.tele_loc)
+            )
+            self.fov_ra_eor_eff = 2 * (90 - altaz.alt.deg).max() * units.deg
 
         if self.fovs_match:
             self.pix_fg = self.pix_eor.copy()
@@ -352,7 +349,15 @@ class Healpix(HEALPix):
             self.ra_fg = ra_fg
             self.dec_fg = dec_fg
             if not self.single_fov:
-                self.fov_ra_fg_eff = obs_ang_extent + self.fov_ra_fg
+                # Effective FoV along the RA axis due to combining multiple
+                # FoVs across all times
+                skycoord = SkyCoord(
+                    self.ra_fg*units.deg, self.dec_fg*units.deg, frame="icrs"
+                )
+                altaz = skycoord.transform_to(
+                    AltAz(obstime=self.jd_center, location=self.tele_loc)
+                )
+                self.fov_ra_fg_eff = 2 * (90 - altaz.alt.deg).max() * units.deg
         self.pix = self.pix_fg
         self.ra = self.ra_fg
         self.dec = self.dec_fg
