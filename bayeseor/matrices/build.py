@@ -8,6 +8,7 @@ from scipy import sparse
 from scipy.signal import windows
 from pathlib import Path
 from astropy.constants import c
+from astropy import units
 
 from .funcs import (
     nuidft_matrix_2d, idft_matrix_1d,
@@ -45,34 +46,19 @@ class BuildMatrices():
     nu : int
         Number of pixels on a side for the u axis in the model uv-plane.
         Defaults to None.
-    du_eor : float
-        Fourier mode spacing along the u axis in inverse radians of the
-        EoR model uv-plane. Defaults to None.
     nv : int
         Number of pixels on a side for the v axis in the model uv-plane.
         Defaults to None.
-    dv_eor : float
-        Fourier mode spacing along the v axis in inverse radians of the
-        EoR model uv-plane. Defaults to None.
     nu_fg : int
         Number of pixels on a side for the u-axis in the FG model uv-plane.
         Defaults to None.
-    du_fg : float
-        Fourier mode spacing along the u axis in inverse radians of the
-        FG model uv-plane. Defaults to None.
     nv_fg : int
         Number of pixels on a side for the v-axis in the FG model uv-plane.
         Defaults to None.
-    dv_fg : float
-        Fourier mode spacing along the v axis in inverse radians of the
-        FG model uv-plane. Defaults to None.
     nf : int
         Number of frequency channels. Defaults to None.
     neta : int
         Number of Line of Sight (LoS) Fourier modes. Defaults to None.
-    deta : float
-        Fourier mode spacing along the eta (line of sight, frequency) axis in
-        inverse Hz. Defaults to None.
     fit_for_monopole : bool, optional
         Fit for (u, v) = (0, 0) (True) or exclude it from the fit (False).
         Defaults to False.
@@ -126,9 +112,18 @@ class BuildMatrices():
         Field of view in degrees of the DEC axis of the FG sky model.
         Defaults to None.
     simple_za_filter : bool, optional
-        Filter pixels in the sky model by zenith angle only (circular
-        FoV) independently along the RA and DEC axes (rectangular FoV).
-        This will be deprecated in a future version. Defaults to True.
+        Filter pixels in the FoV by zenith angle only. Otherwise, filter
+        pixels in a rectangular region. We strongly suggest
+        leaving `simple_za_filter` as True as the rectangular pixel selection
+        is not always reliable (please see BayesEoR issue #11 for more
+        details). Defaults to True.
+    single_fov : bool, optional
+        Use a single field of view at the central time step to form the sky
+        model pixel mask(s). Otherwise, calculate the pixel masks for each
+        time and form the total pixel masks as the union of the pixel indices
+        at each time. See the docstring for :func:`.get_pixel_filter` for more
+        details. This setting can be enabled to reproduce the results in
+        Burba+23a (2023MNRAS.520.4443B). Defaults to False.
     include_instrumental_effects : bool, optional
         Include instrumental effects like frequency dependent (u, v) sampling
         and the primary beam. Defaults to True.
@@ -214,16 +209,11 @@ class BuildMatrices():
     def __init__(
         self,
         nu=None,  # required
-        du_eor=None,  # required
         nv=None,  # required
-        dv_eor=None,  # required
         nu_fg=None,  # required
-        du_fg=None,  # required
         nv_fg=None,  # required
-        dv_fg=None,  # required
         nf=None,   # required
         neta=None,   # required
-        deta=None,  # required
         fit_for_monopole=False,
         use_shg=False,
         nu_sh=None,
@@ -243,6 +233,7 @@ class BuildMatrices():
         fov_ra_fg=None,
         fov_dec_fg=None,
         simple_za_filter=True,
+        single_fov=False,
         include_instrumental_effects=True,  # FIXME: see BayesEoR issue #57
         telescope_latlonalt=(0, 0, 0),
         nt=None,
@@ -310,6 +301,7 @@ class BuildMatrices():
             else:
                 self.fov_dec_fg = fov_dec_fg
             self.simple_za_filter = simple_za_filter
+            self.single_fov = single_fov
             self.nside = nside
             self.jd_center = jd_center
             self.telescope_latlonalt = telescope_latlonalt
@@ -329,6 +321,7 @@ class BuildMatrices():
                 fov_ra_fg=self.fov_ra_fg,
                 fov_dec_fg=self.fov_dec_fg,
                 simple_za_filter=self.simple_za_filter,
+                single_fov=self.single_fov,
                 nside=self.nside,
                 telescope_latlonalt=self.telescope_latlonalt,
                 jd_center=self.jd_center,
@@ -339,7 +332,7 @@ class BuildMatrices():
                 fwhm_deg=self.fwhm_deg,
                 diam=self.antenna_diameter,
                 cosfreq=self.cosfreq
-            )
+            )            
 
             self.drift_scan = drift_scan
 
@@ -360,17 +353,30 @@ class BuildMatrices():
         self.taper_func = taper_func
 
         # Fz normalization
-        self.deta = deta
+        # Spacing along the eta-axis (line-of-sight Fourier dual to freq)
+        self.deta = (1 / (self.nf * self.df*units.MHz).to("Hz")).value
         self.Fz_normalization = self.deta
 
         # Fprime normalization
-        self.du_eor = du_eor
-        self.dv_eor = dv_eor
+        # EoR model
+        # Spacing along the u-axis of the EoR model uv-plane
+        if self.single_fov:
+            self.du_eor = 1 / self.hpx.fov_ra_eor.to("rad").value
+        else:
+            self.du_eor = 1 / self.hpx.fov_ra_eor_eff.to("rad").value
+        # Spacing along the v-axis of the EoR model uv-plane
+        self.dv_eor = 1 / self.hpx.fov_dec_eor.to("rad").value
         self.Fprime_normalization_eor = (
             self.nu * self.nv * self.du_eor * self.dv_eor
         )
-        self.du_fg = du_fg
-        self.dv_fg = dv_fg
+        # Foreground model
+        # Spacing along the u-axis of the foreground model uv-plane
+        if self.single_fov:
+            self.du_fg = 1 / self.hpx.fov_ra_fg.to("rad").value
+        else:
+            self.du_fg = 1 / self.hpx.fov_ra_fg_eff.to("rad").value
+        # Spacing along the v-axis of the foreground model uv-plane
+        self.dv_fg = 1 / self.hpx.fov_dec_fg.to("rad").value
         self.Fprime_normalization_fg = (
             self.nu_fg * self.nv_fg * self.du_fg * self.dv_fg
         )
