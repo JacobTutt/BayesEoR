@@ -192,7 +192,7 @@ def run_setup(
         True.
     include_instrumental_effects : bool, optional
         Forward model an instrument. Defaults to True.
-    beam_type : str
+    beam_type : str, optional
         Path to a pyuvdata-compatible beam file or one of 'uniform',
         'gaussian', 'airy', 'gausscosine', or 'taperairy'. Used only if
         `include_instrumental_effects` is True. Defaults to None.
@@ -622,30 +622,7 @@ def run_setup(
         if nv_sh is None:
             nv_sh = nu_sh
 
-    # Derived params
-    cosmo = Cosmology()
-    redshift = cosmo.f2z(vis_dict["freqs"].mean() * units.Hz)
-    bandwidth = (vis_dict["df"] * units.Hz) * nf
-    # EoR model
-    # Spacing along the eta axis (line-of-sight Fourier dual to frequency)
-    # defined as one over the bandwidth in Hz [1/Hz].
-    deta = 1 / bandwidth.to("Hz").value
-    # Spacing along the u-axis of the EoR model uv-plane [1/rad]
-    du_eor = 1 / np.deg2rad(fov_ra_eor)
-    # Spacing along the v-axis of the EoR model uv-plane [1/rad]
-    dv_eor = 1 / np.deg2rad(fov_dec_eor)
-    # Comoving line-of-sight size of the EoR volume [Mpc]
-    ps_box_size_para_Mpc = cosmo.dL_df(redshift) * bandwidth.to("Hz").value
-    # Comoving transverse size of the EoR volume along RA [Mpc]
-    ps_box_size_ra_Mpc = cosmo.dL_dth(redshift) * np.deg2rad(fov_ra_eor)
-    # Comoving transverse size of the EoR volume along Dec [Mpc]
-    ps_box_size_dec_Mpc = cosmo.dL_dth(redshift) * np.deg2rad(fov_dec_eor)
-    # Foreground model
-    # Spacing along the u-axis of the model uv-plane [1/rad]
-    du_fg = 1 / np.deg2rad(fov_ra_fg)
-    # Spacing along the v-axis of the model uv-plane [1/rad]
-    dv_fg = 1 / np.deg2rad(fov_dec_fg)
-    # Beam model
+    # Beam model derived params
     if achromatic_beam:
         if beam_ref_freq is None:
             beam_ref_freq = nu_min_MHz
@@ -751,40 +728,14 @@ def run_setup(
             f"{sampler_dir.absolute().as_posix()}"
         )
 
-    mpiprint("\n", Panel("Model k Cube"), rank=print_rank)
-    k_vals, k_cube_voxels_in_bin = build_k_cube(
-        nu=nu,
-        nv=nv,
-        neta=neta,
-        ps_box_size_ra_Mpc=ps_box_size_ra_Mpc,
-        ps_box_size_dec_Mpc=ps_box_size_dec_Mpc,
-        ps_box_size_para_Mpc=ps_box_size_para_Mpc,
-        save_k_vals=save_k_vals,
-        output_dir=sampler_dir,
-        clobber=clobber,
-        verbose=verbose,
-        rank=rank
-    )
-    mpiprint(f"\nk bins: {len(k_vals)}", rank=print_rank)
-    mpiprint(
-        f"k bin centers: {np.round(k_vals, decimals=3)} 1/Mpc", rank=print_rank
-    )
-    vox_per_bin = [len(kinds[0]) for kinds in k_cube_voxels_in_bin]
-    mpiprint(f"Voxels per bin: {vox_per_bin}", rank=print_rank)
-
     mpiprint("\n", Panel("Matrices"), rank=print_rank)
     bm = build_matrices(
         nu=nu,
-        du_eor=du_eor,
         nv=nv,
-        dv_eor=dv_eor,
         nu_fg=nu_fg,
-        du_fg=du_fg,
         nv_fg=nv_fg,
-        dv_fg=dv_fg,
         nf=nf,
         neta=neta,
-        deta=deta,
         fit_for_monopole=fit_for_monopole,
         use_shg=use_shg,
         nu_sh=nu_sh,
@@ -833,6 +784,42 @@ def run_setup(
         verbose=verbose,
         rank=rank
     )
+
+    # EoR model cosmological parameters
+    cosmo = Cosmology()
+    redshift = cosmo.f2z(vis_dict["freqs"].mean() * units.Hz)
+    bandwidth = (vis_dict["df"] * units.Hz) * nf
+    # Comoving line-of-sight size of the EoR volume [Mpc]
+    ps_box_size_para_Mpc = cosmo.dL_df(redshift) * bandwidth.to("Hz").value
+    rad_to_Mpc = cosmo.dL_dth(redshift)
+    # Comoving transverse size of the EoR volume along RA [Mpc]
+    if bm.hpx.single_fov:
+        ps_box_size_ra_Mpc = rad_to_Mpc * bm.hpx.fov_ra_eor.to("rad")
+    else:
+        ps_box_size_ra_Mpc = rad_to_Mpc * bm.hpx.fov_ra_eor_eff.to("rad")
+    # Comoving transverse size of the EoR volume along Dec [Mpc]
+    ps_box_size_dec_Mpc = rad_to_Mpc * bm.hpx.fov_dec_eor.to("rad")
+
+    mpiprint("\n", Panel("Model k Cube"), rank=print_rank)
+    k_vals, k_cube_voxels_in_bin = build_k_cube(
+        nu=nu,
+        nv=nv,
+        neta=neta,
+        ps_box_size_ra_Mpc=ps_box_size_ra_Mpc,
+        ps_box_size_dec_Mpc=ps_box_size_dec_Mpc,
+        ps_box_size_para_Mpc=ps_box_size_para_Mpc,
+        save_k_vals=save_k_vals,
+        output_dir=sampler_dir,
+        clobber=clobber,
+        verbose=verbose,
+        rank=rank
+    )
+    mpiprint(f"\nk bins: {len(k_vals)}", rank=print_rank)
+    mpiprint(
+        f"k bin centers: {np.round(k_vals, decimals=3)} 1/Mpc", rank=print_rank
+    )
+    vox_per_bin = [len(kinds[0]) for kinds in k_cube_voxels_in_bin]
+    mpiprint(f"Voxels per bin: {vox_per_bin}", rank=print_rank)
 
     mpiprint("\n", Panel("Posterior"), rank=print_rank)
     # Temporarily suppress output from bm.dot_product
