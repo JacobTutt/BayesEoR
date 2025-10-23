@@ -24,12 +24,6 @@ from ..model.healpix import Healpix
 from .. import __version__
 
 
-SECS_PER_HOUR = 60 * 60
-SECS_PER_DAY = SECS_PER_HOUR * 24
-DAYS_PER_SEC = 1.0 / SECS_PER_DAY
-DEGREES_PER_HOUR = 360.0 / 24
-DEGREES_PER_SEC = DEGREES_PER_HOUR * 1 / SECS_PER_HOUR
-DEGREES_PER_MIN = DEGREES_PER_SEC * 60
 try:
     from threadpoolctl import threadpool_info
     NTHREADS = threadpool_info()[0]["num_threads"]
@@ -45,18 +39,14 @@ class BuildMatrices():
     ----------
     nu : int
         Number of pixels on a side for the u axis in the model uv-plane.
-        Defaults to None.
     nv : int
         Number of pixels on a side for the v axis in the model uv-plane.
-        Defaults to None.
     nu_fg : int
         Number of pixels on a side for the u-axis in the FG model uv-plane.
-        Defaults to None.
     nv_fg : int
         Number of pixels on a side for the v-axis in the FG model uv-plane.
-        Defaults to None.
     nf : int
-        Number of frequency channels. Defaults to None.
+        Number of frequency channels.
     neta : int
         Number of Line of Sight (LoS) Fourier modes. Defaults to None.
     fit_for_monopole : bool, optional
@@ -102,15 +92,16 @@ class BuildMatrices():
     fov_ra_eor : float
         Field of view in degrees of the RA axis of the EoR sky model.
         Defaults to None.
-    fov_dec_eor : float
-        Field of view in degrees of the DEC axis of the EoR sky model.
-        Defaults to None.
-    fov_ra_fg : float
-        Field of view in degrees of the RA axis of the FG sky model.
-        Defaults to None.
-    fov_dec_fg : float
-        Field of view in degrees of the DEC axis of the FG sky model.
-        Defaults to None.
+    fov_dec_eor : float, optional
+        Field of view of the Declination axis of the EoR sky model in degrees.
+        Defaults to `fov_ra_eor`.
+    fov_ra_fg : float, optional
+        Field of view of the Right Ascension axis of the foreground sky model
+        in degrees. Defaults to `fov_ra_eor`.
+    fov_dec_fg : float, optional
+        Field of view of the Declination axis of the foreground sky model in
+        degrees. Defaults to `fov_dec_eor` if `fov_ra_fg` is None or
+        `fov_ra_fg`.
     simple_za_filter : bool, optional
         Filter pixels in the FoV by zenith angle only. Otherwise, filter
         pixels in a rectangular region. We strongly suggest
@@ -129,42 +120,44 @@ class BuildMatrices():
         and the primary beam. Defaults to True.
     telescope_latlonalt : tuple, optional
         The latitude, longitude, and altitude of the telescope in degrees,
-        degrees, and meters, respectively. Defaults to (0, 0, 0).
+        degrees, and meters, respectively. Required if
+        `include_instrumental_effects` is True. Defaults to None.
     nt : int
-        Number of times. Defaults to None.
+        Number of times.
     jd_center : float
-        Central time step of the observation in JD2000 format. Defaults to
-        None.
+        Central time step of the observation in JD2000 format.
     dt : float
-        Time cadence of observations in seconds. Defaults to None.
-    beam_type : string
-        Beam type to use.  Can be 'uniform', 'gaussian', 'airy', 'taperairy',
-        or 'gausscosine'. Defaults to None.
-    beam_center : tuple of floats
-        Beam center in (RA, DEC) coordinates and units of degrees.  Assumed to
-        be an tuple of offsets along the RA and DEC axes relative to the
-        pointing center of the sky model determined from the instrument model
-        parameters `telescope_latlonalt` and `jd_center`. Defaults to None.
+        Time cadence of observations in seconds.
+    beam_type : str, optional
+        Path to a pyuvdata-compatible beam file or one of 'uniform',
+        'gaussian', 'airy', 'gausscosine', or 'taperairy'. Used only if
+        `include_instrumental_effects` is True. Defaults to None.
+    beam_center : list of float, optional
+        Beam center offsets from the phase center in right ascension and
+        declination in degrees. Used only if `include_instrumental_effects` is
+        True. Defaults to None.
     achromatic_beam : bool, optional
-        Force the beam to be achromatic using `beam_ref_freq` as the reference
-        frequency. Defaults to False.
+        Force the beam to be achromatic. The frequency at which the beam will
+        be calculated is set via `beam_ref_freq`. Used only if
+        `include_instrumental_effects` is True. Defaults to False.
     beam_peak_amplitude : float, optional
-        Peak amplitude of the beam. Defaults to 1.
-    fwhm_deg : float
-        Full Width at Half Maximum (FWHM) of the beam if using a Gaussian beam,
-        or the effective FWHM of the main lobe of an Airy beam from which the
-        diameter of the aperture is calculated. Defaults to None.
-    antenna_diameter : float
-        Antenna (aperture) diameter in meters.  Used in the calculation of an
-        Airy beam pattern or when using a Gaussian beam with a FWHM that varies
-        as a function of frequency.  The FWHM evolves according to the
-        effective FWHM of the main lobe of an Airy beam. Defaults to None.
-    cosfreq : float
-        Cosine frequency in radians if using a 'gausscosine' beam. Defaults to
-        None.
+        Peak amplitude of the beam. Used only if `include_instrumental_effects`
+        is True. Defaults to 1.0.
+    fwhm_deg : float, optional
+        Full width at half maximum of beam in degrees. Used only if
+        `include_instrumental_effects` is True and `beam_type` is 'airy',
+        'gaussian', or 'gausscosine'. Defaults to None.
+    antenna_diameter : float, optional
+        Antenna (aperture) diameter in meters. Used only if
+        `include_instrumental_effects` is True and `beam_type` is 'airy',
+        'gaussian', or 'gausscosine'. Defaults to None.
+    cosfreq : float, optional
+        Cosine frequency if using a 'gausscosine' beam. Used only if
+        `include_instrumental_effects` is True. Defaults to None.
     beam_ref_freq : float, optional
-        Beam reference frequency in megahertz.  Used to fix the beam to be
-        achromatic. Defaults to None.
+        Beam reference frequency in megahertz. Used only if
+        `include_instrumental_effects` and `achromatic_beam` are True.
+        Defaults to None.
     drift_scan : bool, optional
         If True, model a drift scan primary beam, i.e. the beam center drifts
         across the image space model with time. Defaults to True.
@@ -180,7 +173,7 @@ class BuildMatrices():
         visibilities after performing the nuDFT from HEALPix (l, m, f) to
         instrumentally sampled, unphased (u, v, f).  Defaults to None, i.e.
         modelling unphased visibilities. Defaults to None.
-    effective_noise : numpy.ndarray
+    effective_noise : numpy.ndarray, optional
         If the data vector being analyzed contains signal + noise, the
         effective_noise vector contains the estimate of the noise in the data
         vector.  Must have the shape and ordering of the data vector,
@@ -208,57 +201,57 @@ class BuildMatrices():
     """
     def __init__(
         self,
-        nu=None,  # required
-        nv=None,  # required
-        nu_fg=None,  # required
-        nv_fg=None,  # required
-        nf=None,   # required
-        neta=None,   # required
-        fit_for_monopole=False,
-        use_shg=False,
-        nu_sh=None,
-        nv_sh=None,
-        nq_sh=None,
-        npl_sh=None,
-        fit_for_shg_amps=False,
-        f_min=None,  # required
-        df=None,  # required
-        nq=0,
-        npl=0,
-        beta=None,
-        sigma=None,  # required
-        nside=None,
-        fov_ra_eor=None,
-        fov_dec_eor=None,
-        fov_ra_fg=None,
-        fov_dec_fg=None,
-        simple_za_filter=True,
-        single_fov=False,
-        include_instrumental_effects=True,  # FIXME: see BayesEoR issue #57
-        telescope_latlonalt=(0, 0, 0),
-        nt=None,
-        jd_center=None,
-        dt=None,
-        beam_type=None,
-        beam_center=None,
-        achromatic_beam=False,
-        beam_peak_amplitude=1,
-        fwhm_deg=None,
-        antenna_diameter=None,
-        cosfreq=None,
-        beam_ref_freq=None,
-        drift_scan=True,
-        uvw_array_m=None,
-        bl_red_array=None,
-        phasor=None,
-        effective_noise=None,
-        taper_func=None,
-        array_save_directory="./matrices/",
-        use_sparse_matrices=True,
-        Finv_Fprime=True,
-        verbose=False
+        *,
+        nu : int,
+        nv : int,
+        nu_fg : int,
+        nv_fg : int,
+        nf : int,
+        neta : int,
+        fit_for_monopole : bool = False,
+        use_shg : bool = False,
+        nu_sh : int | None = None,
+        nv_sh : int | None = None,
+        nq_sh : int | None = None,
+        npl_sh : int | None = None,
+        fit_for_shg_amps : bool = False,
+        f_min : float,
+        df : float,
+        nq : int = 0,
+        npl : int = 0,
+        beta : list[float] | None = None,
+        sigma : float,
+        nside : int,
+        fov_ra_eor : float,
+        fov_dec_eor : float | None = None,
+        fov_ra_fg : float | None = None,
+        fov_dec_fg : float | None = None,
+        simple_za_filter : bool = True,
+        single_fov : bool = False,
+        include_instrumental_effects : bool = True,  # FIXME: see BayesEoR issue #57
+        telescope_latlonalt : tuple[float] | None = None,
+        nt : int,
+        jd_center : float,
+        dt : float,
+        beam_type : str | None = None,
+        beam_center : list[float] | None = None,
+        achromatic_beam : bool = False,
+        beam_peak_amplitude : float = 1,
+        fwhm_deg : float | None = None,
+        antenna_diameter : float | None = None,
+        cosfreq : float | None = None,
+        beam_ref_freq : float | None = None,
+        drift_scan : bool = True,
+        uvw_array_m : np.ndarray,
+        bl_red_array : np.ndarray,
+        phasor : np.ndarray | None = None,
+        effective_noise : np.ndarray | None = None,
+        taper_func : str | None = None,
+        array_save_directory : str = "./matrices/",
+        use_sparse_matrices : bool = True,
+        Finv_Fprime : bool = True,
+        verbose : bool = False
     ):
-        # FIXME: add check for required args/kwargs
         self.nu = nu
         self.nv = nv
         self.nu_fg = nu_fg
@@ -282,24 +275,16 @@ class BuildMatrices():
         self.verbose = verbose
 
         if self.include_instrumental_effects:
+            if telescope_latlonalt is None:
+                raise ValueError(
+                    "telescope_latlonalt cannot be None if "
+                    "include_instrumental_effects is true"
+                )
             self.uvw_array_m = uvw_array_m
             self.nbls = uvw_array_m.shape[1]
             self.bl_red_array = bl_red_array
             self.bl_red_array_vec = bl_red_array.reshape(-1, 1).flatten()
             self.phasor = phasor
-            self.fov_ra_eor = fov_ra_eor
-            if fov_dec_eor is None:
-                self.fov_dec_eor = self.fov_ra_eor
-            else:
-                self.fov_dec_eor = fov_dec_eor
-            if fov_ra_fg is None:
-                self.fov_ra_fg = fov_ra_eor
-            else:
-                self.fov_ra_fg = fov_ra_fg
-            if fov_dec_fg is None:
-                self.fov_dec_fg = self.fov_ra_fg
-            else:
-                self.fov_dec_fg = fov_dec_fg
             self.simple_za_filter = simple_za_filter
             self.single_fov = single_fov
             self.nside = nside
@@ -316,10 +301,10 @@ class BuildMatrices():
             self.effective_noise = effective_noise
 
             self.hpx = Healpix(
-                fov_ra_eor=self.fov_ra_eor,
-                fov_dec_eor=self.fov_dec_eor,
-                fov_ra_fg=self.fov_ra_fg,
-                fov_dec_fg=self.fov_dec_fg,
+                fov_ra_eor=fov_ra_eor,
+                fov_dec_eor=fov_dec_eor,
+                fov_ra_fg=fov_ra_fg,
+                fov_dec_fg=fov_dec_fg,
                 simple_za_filter=self.simple_za_filter,
                 single_fov=self.single_fov,
                 nside=self.nside,
