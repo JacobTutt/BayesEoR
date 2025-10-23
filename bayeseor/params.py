@@ -213,6 +213,14 @@ class BayesEoRParser(ArgumentParser):
         Otherwise, filter pixels in a rectangular region set by the field of
         view values along the RA and Dec axes (False). It is suggested to
         set `simple_za_filter` to True (see issue #11).
+    single_fov : bool, optional
+        Use a single field of view at the central time step to form the sky
+        model pixel mask(s). Otherwise, calculate the pixel masks for each
+        time and form the total pixel masks as the union of the pixel indices
+        at each time. See the docstring for
+        :class:`bayeseor.matrices.build.BuildMatrices` for more details. This
+        setting can be enabled to reproduce the results in Burba+23a
+        (2023MNRAS.520.4443B). Defaults to False.
 
     Model uv-Plane Parameters
 
@@ -690,6 +698,17 @@ class BayesEoRParser(ArgumentParser):
                  "Otherwise, filter pixels in a rectangular region set by the field of "
                  "view values along the RA and Dec axes (False). It is suggested to "
                  "set `simple_za_filter` to True (see issue #11)."
+        )
+        self.add_argument(
+            "--single-fov",
+            action="store_true",
+            help="Use a single field of view at the central time step to form "
+                 "the sky model pixel mask(s).  Otherwise, calculate the pixel "
+                 "masks for each time and form the total pixel masks as the "
+                 "union of the pixel indices at each time.  See the docstring "
+                 "for :class:`bayeseor.matrices.build.BuildMatrices` for more "
+                 "details.  This setting can be enabled to reproduce the "
+                 "results in Burba+23a (2023MNRAS.520.4443B).  Defaults to False."
         )
         # Model uv-Plane Parameters
         self.add_argument(
