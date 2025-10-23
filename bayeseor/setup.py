@@ -49,6 +49,7 @@ def run_setup(
     fov_ra_fg : float | None = None,
     fov_dec_fg : float | None = None,
     simple_za_filter : bool = True,
+    single_fov : bool = False,
     taper_func : str | None = None,
     drift_scan : bool = True,
     include_instrumental_effects : bool = True,
@@ -183,6 +184,14 @@ def run_setup(
         `fov_ra_fg`.
     simple_za_filter : bool, optional
         Filter pixels in the sky model by zenith angle only. Defaults to True.
+    single_fov : bool, optional
+        Use a single field of view at the central time step to form the sky
+        model pixel mask(s). Otherwise, calculate the pixel masks for each
+        time and form the total pixel masks as the union of the pixel indices
+        at each time. See the docstring for
+        :class:`bayeseor.matrices.build.BuildMatrices` for more details. This
+        setting can be enabled to reproduce the results in Burba+23a
+        (2023MNRAS.520.4443B). Defaults to False.
     taper_func : str, optional
         Taper function applied to the frequency axis of the visibilities.
         Can be any valid argument to `scipy.signal.windows.get_window`.
@@ -755,6 +764,7 @@ def run_setup(
         fov_ra_fg=fov_ra_fg,
         fov_dec_fg=fov_dec_fg,
         simple_za_filter=simple_za_filter,
+        single_fov=single_fov,
         telescope_name=telescope_name,
         telescope_latlonalt=telescope_latlonalt,
         uvws=uvws,
@@ -1582,6 +1592,7 @@ def generate_array_dir(
     fov_ra_fg : float,
     fov_dec_fg : float,
     simple_za_filter : bool = True,
+    single_fov : bool = False,
     include_instrumental_effects : bool = True,
     telescope_name : str = "",
     nbls : int | None = None,
@@ -1662,6 +1673,14 @@ def generate_array_dir(
         degrees.
     simple_za_filter : bool, optional
         Filter pixels in the sky model by zenith angle only. Defaults to True.
+    single_fov : bool, optional
+        Use a single field of view at the central time step to form the sky
+        model pixel mask(s). Otherwise, calculate the pixel masks for each
+        time and form the total pixel masks as the union of the pixel indices
+        at each time. See the docstring for
+        :class:`bayeseor.matrices.build.BuildMatrices` for more details. This
+        setting can be enabled to reproduce the results in Burba+23a
+        (2023MNRAS.520.4443B). Defaults to False.
     include_instrumental_effects : bool, optional
         Forward model an instrument. Defaults to True.
     telescope_name : str, optional
@@ -1780,6 +1799,8 @@ def generate_array_dir(
             img_str += f"{fov_ra_fg:.1f}d"
     if not simple_za_filter:
         img_str += "-rect"
+    if single_fov:
+        img_str += "-1fov"
     img_str += f"-nside{nside}"
     matrices_path /= img_str
     
@@ -1877,6 +1898,7 @@ def build_matrices(
     fov_ra_fg : float,
     fov_dec_fg : float,
     simple_za_filter : bool = True,
+    single_fov : bool = False,
     include_instrumental_effects : bool = True,
     telescope_latlonalt : Sequence[float] | None = None,
     nt : int,
@@ -1990,6 +2012,14 @@ def build_matrices(
         degrees.
     simple_za_filter : bool, optional
         Filter pixels in the sky model by zenith angle only. Defaults to True.
+    single_fov : bool, optional
+        Use a single field of view at the central time step to form the sky
+        model pixel mask(s). Otherwise, calculate the pixel masks for each
+        time and form the total pixel masks as the union of the pixel indices
+        at each time. See the docstring for
+        :class:`bayeseor.matrices.build.BuildMatrices` for more details. This
+        setting can be enabled to reproduce the results in Burba+23a
+        (2023MNRAS.520.4443B). Defaults to False.
     include_instrumental_effects : bool, optional
         Forward model an instrument. Defaults to True.
     telescope_latlonalt : sequence of floats, optional
@@ -2136,6 +2166,7 @@ def build_matrices(
         fov_ra_fg=fov_ra_fg,
         fov_dec_fg=fov_dec_fg,
         simple_za_filter=simple_za_filter,
+        single_fov=single_fov,
         telescope_name=telescope_name,
         nbls=nbls,
         nt=nt,
@@ -2204,6 +2235,7 @@ def build_matrices(
         fov_ra_fg=fov_ra_fg,
         fov_dec_fg=fov_dec_fg,
         simple_za_filter=simple_za_filter,
+        single_fov=single_fov,
         include_instrumental_effects=include_instrumental_effects,
         telescope_latlonalt=telescope_latlonalt,
         nt=nt,
