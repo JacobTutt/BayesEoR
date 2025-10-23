@@ -367,7 +367,7 @@ class BuildMatrices():
         )
 
         # Finv normalization
-        self.Finv_normalisation = self.hpx.pixel_area_sr
+        self.Finv_normalisation = self.hpx.pixel_area.to("sr").value
 
         # Dictionary with keys for each parent matrix required to build the
         # full matrix stack and values of list containing names of child
