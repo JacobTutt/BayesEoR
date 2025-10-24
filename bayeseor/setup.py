@@ -1869,16 +1869,11 @@ def generate_array_dir(
 def build_matrices(
     *,
     nu : int,
-    du_eor : float,
     nv : int,
-    dv_eor : float,
     nu_fg : int,
-    du_fg : float,
     nv_fg : int,
-    dv_fg : float,
     nf : int,
     neta : int,
-    deta : float,
     fit_for_monopole : bool = False,
     use_shg : bool = False,
     nu_sh : int | None = None,
@@ -1936,33 +1931,18 @@ def build_matrices(
     ----------
     nu : int
         Number of pixels on a side for the u-axis in the EoR model uv-plane.
-    du_eor : float
-        Fourier mode spacing along the u axis in inverse radians of the
-        EoR model uv-plane.
     nv : int
         Number of pixels on a side for the v-axis in the EoR model uv-plane.
-    dv_eor : float
-        Fourier mode spacing along the v axis in inverse radians of the
-        EoR model uv-plane.
     nu_fg : int
         Number of pixels on a side for the u-axis in the foreground model
         uv-plane.
-    du_fg : float
-        Fourier mode spacing along the u axis in inverse radians of the
-        FG model uv-plane.
     nv_fg : int
         Number of pixels on a side for the v-axis in the foreground model
         uv-plane.
-    dv_fg : float
-        Fourier mode spacing along the v axis in inverse radians of the
-        FG model uv-plane.
     nf : int
         Number of frequency channels.
     neta : int
-        Number of Line of Sight (LoS, frequency axis) Fourier modes.
-    deta : float
-        Fourier mode spacing along the eta (line of sight, frequency) axis in
-        inverse Hz.
+        Number of Line of Sight (LoS, frequency axis) Fourier modes. 
     fit_for_monopole : bool, optional
         Fit for the (u, v) = (0, 0) pixel in the model uv-plane.
     use_shg : bool, optional
@@ -2206,16 +2186,11 @@ def build_matrices(
 
     bm = BuildMatrices(
         nu=nu,
-        du_eor=du_eor,
         nv=nv,
-        dv_eor=dv_eor,
         nu_fg=nu_fg,
-        du_fg=du_fg,
         nv_fg=nv_fg,
-        dv_fg=dv_fg,
         nf=nf,
         neta=neta,
-        deta=deta,
         fit_for_monopole=fit_for_monopole,
         use_shg=use_shg,
         nu_sh=nu_sh,
