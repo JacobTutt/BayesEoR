@@ -17,8 +17,6 @@ from pyuvdata import utils as uvutils
 from scipy.special import j1
 import warnings
 
-c_ms = c.to("m/s").value
-
 HERA_LAT_LON_ALT = (
     -30.72152777777791,  # deg
     21.428305555555557,  # deg
@@ -599,39 +597,43 @@ class Healpix(HEALPix):
 
         elif self.beam_type in ["gaussian", "gausscosine"]:
             if self.fwhm_deg is not None:
-                stddev_rad = np.deg2rad(
-                    self._fwhm_to_stddev(self.fwhm_deg)
-                )
+                stddev = self.fwhm_to_stddev(self.fwhm_deg)
             else:
-                stddev_rad = self._diam_to_stddev(self.diam, freq)
+                stddev = self.diam_to_stddev(self.diam, freq)
             if self.beam_type == "gaussian":
-                beam_vals = self._gaussian_za(za, stddev_rad, self.peak_amp)
+                beam_vals = self.gaussian_za(za, stddev, self.peak_amp)
             else:
-                beam_vals = self._gausscosine(
-                    za, stddev_rad, self.peak_amp, self.cosfreq
+                beam_vals = self.gausscosine(
+                    za, stddev, self.peak_amp, self.cosfreq
                 )
 
         elif self.beam_type == "airy":
             if self.diam is not None:
-                beam_vals = self._airy_disk(za, self.diam, freq)
+                beam_vals = self.airy_disk(za, self.diam, freq)
             else:
-                diam_eff = self._fwhm_to_diam(self.fwhm_deg, freq)
-                beam_vals = self._airy_disk(za, diam_eff, freq)
+                diam_eff = self.fwhm_to_diam(self.fwhm_deg, freq)
+                beam_vals = self.airy_disk(za, diam_eff, freq)
         
         elif self.beam_type == "taperairy":
-            stddev_rad = np.deg2rad(self._fwhm_to_stddev(self.fwhm_deg))
+            stddev = self.fwhm_to_stddev(self.fwhm_deg)
             beam_vals = (
-                self._airy_disk(za, self.diam, freq)
-                * self._gaussian_za(za, stddev_rad, self.peak_amp)
+                self.airy_disk(za, self.diam, freq)
+                * self.gaussian_za(za, stddev, self.peak_amp)
             )
         
         elif self.beam_type == "tanhairy":
             beam_vals = (
-                self._airy_disk(za, self.diam, freq)
-                * self._tanh_taper(za, self.tanh_freq, self.tanh_sl_red)
+                self.airy_disk(za, self.diam, freq)
+                * self.tanh_taper(za, self.tanh_freq, self.tanh_sl_red)
             )
         
         elif self.beam_type == "uvbeam":
+            if isinstance(az, Quantity):
+                az = az.to("rad").value
+            if isinstance(za, Quantity):
+                za = za.to("rad").value
+            if isinstance(freq, Quantity):
+                freq = freq.to("Hz").value
             beam_vals, _ = self.uvb.interp(
                 az_array=az, za_array=za, freq_array=np.array([freq]),
                 reuse_spline=True
@@ -640,16 +642,16 @@ class Healpix(HEALPix):
 
         return beam_vals
 
-    def _gaussian_za(self, za, sigma, amp):
+    def gaussian_za(self, za, sigma, amp):
         """
         Calculate azimuthally symmetric Gaussian beam amplitudes.
 
         Parameters
         ----------
-        za : numpy.ndarray
-            Zenith angle of each pixel in radians.
-        sigma : float
-            Standard deviation in radians.
+        za : astropy.units.Quantity or numpy.ndarray
+            Zenith angle of each pixel in radians if not a Quantity.
+        sigma : astropy.units.Quantity or float
+            Standard deviation in radians if not a Quantity.
         amp : float
             Peak amplitude at zenith.
 
@@ -659,23 +661,27 @@ class Healpix(HEALPix):
             Array of Gaussian beam amplitudes for each zenith angle in `za`.
 
         """
-        beam_vals = amp * np.exp(-za ** 2 / (2 * sigma ** 2))
+        if isinstance(za, Quantity):
+            za = za.to("rad").value
+        if isinstance(sigma, Quantity):
+            sigma = sigma.to("rad").value
+        beam_vals = amp * np.exp(-za**2 / (2 * sigma**2))
         return beam_vals
     
-    def _gausscosine(self, za, sigma, amp, cosfreq):
+    def gausscosine(self, za, sigma, amp, cosfreq):
         """
         Calculate azimuthally symmetric Gaussian * cosine^2 beam amplitudes.
 
         Parameters
         ----------
-        za : numpy.ndarray
-            Zenith angle of each pixel in radians.
-        sigma : float
-            Standard deviation in radians.
+        za : astropy.units.Quantity or numpy.ndarray
+            Zenith angle of each pixel in radians if not a Quantity.
+        sigma : astropy.units.Quantity or float
+            Standard deviation in radians if not a Quantity.
         amp : float
             Peak amplitude at zenith.
-        cosfreq : float
-            Cosine squared frequency in inverse radians.
+        cosfreq : astropy.units.Quantity or float
+            Cosine squared frequency in inverse radians if not a Quantity.
 
         Returns
         -------
@@ -683,34 +689,40 @@ class Healpix(HEALPix):
             Array of Gaussian beam amplitudes for each zenith angle in `za`.
 
         """
-        beam_vals = amp * np.exp(-za ** 2 / (2 * sigma ** 2))
+        if isinstance(za, Quantity):
+            za = za.to("rad").value
+        if isinstance(sigma, Quantity):
+            sigma = sigma.to("rad").value
+        if isinstance(cosfreq, Quantity):
+            cosfreq = cosfreq.to("1/rad").value
+        beam_vals = self.gaussian_za(za, sigma, amp)
         beam_vals *= np.cos(2 * np.pi * za * cosfreq/2)**2
         return beam_vals
 
-    def _fwhm_to_stddev(self, fwhm):
+    def fwhm_to_stddev(self, fwhm):
         """
         Calculate standard deviation from full width at half maximum.
 
         Parameters
         ----------
-        fwhm : float
-            Full width half maximum in degrees.
+        fwhm : astropy.units.Quantity or float
+            Full width half maximum.
 
         """
         return fwhm / 2.355
 
-    def _airy_disk(self, za, diam, freq):
+    def airy_disk(self, za, diam, freq):
         """
         Calculate Airy disk amplitudes.
 
         Parameters
         ----------
-        za : numpy.ndarray of floats
-            Zenith angle of each pixel in radians.
-        diam : float
-            Antenna (aperture) diameter in meters.
-        freq : float
-            Frequency in Hz.
+        za : astropy.units.Quantity or numpy.ndarray
+            Zenith angle of each pixel in radians if not a Quantity.
+        diam : astropy.units.Quantity or float
+            Antenna (aperture) diameter in meters if not a Quantity.
+        freq : astropy.units.Quantity or float
+            Frequency in Hz if not a Quantity.
 
         Returns
         -------
@@ -718,9 +730,15 @@ class Healpix(HEALPix):
             Array of Airy disk amplitudes for each zenith angle in `za`.
 
         """
+        if isinstance(za, Quantity):
+            za = za.to("rad").value
+        if isinstance(diam, Quantity):
+            diam = diam.to("m").value
+        if isinstance(freq, Quantity):
+            freq = freq.to("Hz").value
         xvals = (
                 diam / 2. * np.sin(za)
-                * 2. * np.pi * freq / c_ms
+                * 2. * np.pi * freq / c.to("m/s").value
         )
         beam_vals = np.zeros_like(xvals)
         nz = xvals != 0.
@@ -729,17 +747,18 @@ class Healpix(HEALPix):
         beam_vals[ze] = 1.
         return beam_vals ** 2
     
-    def _tanh_taper(self, za, tanh_freq, tanh_sl_red):
+    def tanh_taper(self, za, tanh_freq, tanh_sl_red):
         """
         Calculate a tanh tapering function.
 
         Parameters
         ----------
-        za : numpy.ndarray of floats
-            Zenith angle of each pixel in radians.
-        tanh_freq : float, optional
-            Exponential frequency (rate parameter) in inverse radians.
-        tanh_sl_red : float, optional
+        za : astropy.units.Quantity or numpy.ndarray
+            Zenith angle of each pixel in radians if not a Quantity.
+        tanh_freq : astropy.units.Quantity or float
+            Exponential frequency (rate parameter) in inverse radians if not a
+            Quantity.
+        tanh_sl_red : float
             Airy sidelobe amplitude reduction as a fractional percent. For
             example, passing 0.99 reduces the sidelobes by 0.01, i.e. two
             orders of magnitude.
@@ -750,23 +769,28 @@ class Healpix(HEALPix):
             Array of tanh taper amplitudes for each zenith angle in `za`.
 
         """
+        if isinstance(za, Quantity):
+            za = za.to("rad").value
+        if isinstance(tanh_freq, Quantity):
+            tanh_freq = tanh_freq.to("1/rad").value
         taper_vals = 1 - tanh_sl_red * np.tanh(tanh_freq * za)
         return taper_vals
 
-    def _fwhm_to_diam(self, fwhm, freq):
+    def fwhm_to_diam(self, fwhm, freq):
         """
         Calculates the effective diameter of an Airy disk from a FWHM.
 
         Parameters
         ----------
-        fwhm : float
-            Full width at half maximum of a Gaussian beam in degrees.
-        freq : float
-            Frequency in Hz.
+        fwhm : astropy.units.Quantity or float
+            Full width at half maximum of a Gaussian beam in degrees if not a
+            Quantity.
+        freq : astropy.units.Quantity or float
+            Frequency in Hz if not a Quantity.
 
         Returns
         -------
-        diam : float
+        diam : astropy.units.Quantity
             Antenna (aperture) diameter in meters with an Airy disk beam
             pattern whose main lobe is described by a Gaussian beam with a
             FWHM of `fwhm`.
@@ -779,27 +803,30 @@ class Healpix(HEALPix):
 
         """
         scalar = 2.2150894
-        wavelength = c_ms / freq
-        fwhm = np.deg2rad(fwhm)
-        diam = scalar * wavelength / (np.pi * np.sin(fwhm / np.sqrt(2)))
+        wavelength = c.to("m/s") / freq.to("1/s")
+        # fwhm = np.deg2rad(fwhm)
+        diam = (
+            scalar * wavelength
+            / (np.pi * np.sin(fwhm.to("rad").value / np.sqrt(2)))
+        )
         return diam
 
-    def _diam_to_stddev(self, diam, freq):
+    def diam_to_stddev(self, diam, freq):
         """
         Calculate an effective standard deviation of an Airy disk.
 
         Parameters
         ----------
-        diam : float
+        diam : astropy.units.Quantity or float
             Antenna (aperture) diameter in meters.
-        freq : float
+        freq : astropy.units.Quantity or float
             Frequency in Hz.
 
         Returns
         -------
-        sigma : float
-            Standard deviation of a Gaussian envelope which describes the main
-            lobe of an Airy disk with aperture `diam`.
+        sigma : astropy.units.Quantity
+            Standard deviation in radians of a Gaussian envelope which
+            describes the main lobe of an Airy disk with aperture `diam`.
 
         Notes
         -----
@@ -807,8 +834,12 @@ class Healpix(HEALPix):
           (https://github.com/RadioAstronomySoftwareGroup/pyuvsim).
 
         """
+        if not isinstance(diam, Quantity):
+            diam = Quantity(diam, unit="m")
+        if not isinstance(freq, Quantity):
+            freq = Quantity(freq, unit="Hz")
         scalar = 2.2150894
-        wavelength = c_ms / freq
+        wavelength = c.to("m/s") / freq.to("1/s")
         sigma = np.arcsin(scalar * wavelength / (np.pi * diam))
         sigma *= np.sqrt(2) / 2.355
         return sigma
