@@ -804,11 +804,11 @@ def run_setup(
     rad_to_Mpc = cosmo.dL_dth(redshift)
     # Comoving transverse size of the EoR volume along RA [Mpc]
     if bm.hpx.single_fov:
-        ps_box_size_ra_Mpc = rad_to_Mpc * bm.hpx.fov_ra_eor.to("rad")
+        ps_box_size_ra_Mpc = rad_to_Mpc * bm.hpx.fov_ra_eor.to("rad").value
     else:
-        ps_box_size_ra_Mpc = rad_to_Mpc * bm.hpx.fov_ra_eor_eff.to("rad")
+        ps_box_size_ra_Mpc = rad_to_Mpc * bm.hpx.fov_ra_eor_eff.to("rad").value
     # Comoving transverse size of the EoR volume along Dec [Mpc]
-    ps_box_size_dec_Mpc = rad_to_Mpc * bm.hpx.fov_dec_eor.to("rad")
+    ps_box_size_dec_Mpc = rad_to_Mpc * bm.hpx.fov_dec_eor.to("rad").value
 
     mpiprint("\n", Panel("Model k Cube"), rank=print_rank)
     k_vals, k_cube_voxels_in_bin = build_k_cube(
