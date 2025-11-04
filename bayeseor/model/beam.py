@@ -373,7 +373,6 @@ class Beam():
         """
         scalar = 2.2150894
         wavelength = c.to("m/s") / freq.to("1/s")
-        # fwhm = np.deg2rad(fwhm)
         diam = (
             scalar * wavelength
             / (np.pi * np.sin(fwhm.to("rad").value / np.sqrt(2)))
