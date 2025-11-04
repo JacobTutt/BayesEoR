@@ -21,6 +21,7 @@ from .funcs import (
     build_nudft_array
 )
 from ..model.healpix import Healpix
+from ..model.beam import Beam
 from .. import __version__
 
 
@@ -311,13 +312,15 @@ class BuildMatrices():
                 telescope_latlonalt=self.telescope_latlonalt,
                 jd_center=self.jd_center,
                 nt=self.nt,
-                dt=self.dt,
+                dt=self.dt
+            )            
+            self.beam = Beam(
                 beam_type=self.beam_type,
                 peak_amp=self.beam_peak_amplitude,
                 fwhm_deg=self.fwhm_deg,
                 diam=self.antenna_diameter,
                 cosfreq=self.cosfreq
-            )            
+            )
 
             self.drift_scan = drift_scan
 
@@ -1147,7 +1150,7 @@ class BuildMatrices():
         if not self.drift_scan:
             multi_chan_beam = self.sd_block_diag([
                 np.diag(
-                    self.hpx.get_beam_vals(
+                    self.beam.get_beam_vals(
                         *self.hpx.calc_lmn_from_radec(
                             self.hpx.jds[self.nt//2],
                             self.hpx.ra_fg,
@@ -1167,7 +1170,7 @@ class BuildMatrices():
             multi_chan_beam = self.sd_vstack([
                 self.sd_block_diag([
                     self.sd_diags(
-                        self.hpx.get_beam_vals(
+                        self.beam.get_beam_vals(
                             *self.hpx.calc_lmn_from_radec(
                                 self.hpx.jds[i_t],
                                 self.hpx.ra_fg,
@@ -1869,7 +1872,7 @@ class BuildMatrices():
                 )
                 nudft_lmn_to_vis *= self.Finv_normalisation
                 # Beam amplitude at each (l, m, n)
-                beam_vals = self.hpx.get_beam_vals(
+                beam_vals = self.beam.get_beam_vals(
                     az_rad, za_rad, freq=self.freqs_hertz[i_f]
                 )
                 # Equivalent to np.dot(nudft_lmn_to_vis, np.diag(beam_vals))

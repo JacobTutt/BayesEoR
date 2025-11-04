@@ -1,3 +1,4 @@
+from .beam import *
 from .healpix import *
 from .instrument import *
 from .k_cube import *
