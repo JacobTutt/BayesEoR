@@ -9,8 +9,8 @@ from rich import print as rprint
 from rich.panel import Panel
 
 from ..params import BayesEoRParser
-from .model.instrument import load_inst_model
-from .model.beam import Beam
+from .instrument import load_inst_model
+from .beam import Beam
 
 def get_uv_model_params(
     config : Path | str | None = None,
