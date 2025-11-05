@@ -2,8 +2,11 @@ import numpy as np
 from astropy.constants import c
 from astropy import units
 from astropy.units import Quantity
+from astropy_healpix import healpy as ahp
 import matplotlib.pyplot as plt
 from pathlib import Path
+from rich import print as rprint
+from rich.panel import Panel
 
 from ..params import BayesEoRParser
 from .model.instrument import load_inst_model
@@ -23,7 +26,8 @@ def get_uv_model_params(
     diam : Quantity | float | None = None,
     Nsigma : float | None = 5,
     uvs_path : Path | str | None = None,
-    plot : bool = False
+    plot : bool = False,
+    verbose : bool = True
 ):
     """
     Calculate the required nu (nv) given sky and instrument model parameters.
@@ -88,12 +92,26 @@ def get_uv_model_params(
         calculated based on the beam model in wavelengths. The aperture
         function is only plotted for the baseline along the u (v) axis with
         the largest |u| (|v|). Defaults to False.
+    verbose : bool, optional
+        Verbose output. Defaults to True.
 
     Returns
     -------
     model_dict : dict
         Dictionary containing the required model uv-plane parameters `nu_eor`,
         `nv_eor`, `nu_fg`, `nv_fg`, and `nside`.
+    Nu_eor: int
+        Number of pixels on a side for the u-axis in the EoR model uv-plane.
+    Nv_eor: int
+        Number of pixels on a side for the v-axis in the EoR model uv-plane.
+    Nu_fg: int
+        Number of pixels on a side for the u-axis in the foreground model
+        uv-plane.
+    Nv_fg: int
+        Number of pixels on a side for the v-axis in the foreground model
+        uv-plane.
+    Nside: int
+        HEALPix Nside which satisfies Nyquist sampling.
     """
     if config is not None:
         if not isinstance(config, Path):
@@ -234,3 +252,167 @@ def get_uv_model_params(
             ax.set_yticks(v_edges, minor=True)
             ax.set_ylim([v_edges[0], v_edges[-1]])
             ax.grid(which='minor')
+    
+    # --- BayesEoR model parameters ---
+    # Model uv plane
+    delta_u_eor = 1 / fov_ra_eor.to('rad')
+    delta_v_eor = 1 / fov_dec_eor.to('rad')
+    delta_u_fg = 1 / fov_ra_fg.to('rad')
+    delta_v_fg = 1 / fov_dec_fg.to('rad')
+
+    """
+    The FoV along the RA and Dec axes set the separation between adjacent u
+    and v modes in the model uv plane, respectively.  We need to choose the
+    number of model uv plane grid points such that we Nyquist sample the image
+    domain which equates to having two image domain pixels per minimum fringe
+    wavelength.  The logic is identical for v.
+
+    The minimum fringe wavelength is `1 / u_max` where `u_max` is the maximum
+    u sampled by the instrument along the u axis.  We add a buffer of half the
+    width of the aperture function to this u_max, i.e.
+
+    u'_max = u_max + 0.5 * aperture_width
+
+    We thus need to choose u for the model uv plane which produces a fringe
+    wavelength which is smaller than the minimum fringe wavelength sampled by
+    the instrument, i.e. we need to solve
+
+    1 / u <= 1 / u'_max    ==>    u'_max <= u
+
+    Given that we have a rectilinear grid for the model uv plane and the
+    spacing between adjacent u is given by
+
+    delta_u = 1 / FoV_RA    (for delta_v we replace FoV_RA with FoV_Dec)
+
+    we must choose N_u such that
+
+    u'_max <= N_u * delta_u    ==>    N_u >= u'_max / delta_u
+    """
+    Nu_eor = int(
+        np.ceil((u_max_inst_model + 0.5*aperture_width) / delta_u_eor)
+    )
+    Nv_eor = int(
+        np.ceil((v_max_inst_model + 0.5*aperture_width) / delta_v_eor)
+    )
+    Nu_fg = int(np.ceil((u_max_inst_model + 0.5*aperture_width) / delta_u_fg))
+    Nv_fg = int(np.ceil((v_max_inst_model + 0.5*aperture_width) / delta_v_fg))
+
+    # The calculation above determines the number of model uv plane pixels
+    # required for u > 0 (v > 0).  But, the model uv plane in BayesEoR is
+    # specified for all u (v) (positive and negative).  The model uv plane
+    # also requires an odd number of pixels along the u (v) axis for modelling
+    # the (u, v)=(0, 0) monopole.
+    Nu_eor = Nu_eor * 2 + 1
+    Nv_eor = Nv_eor * 2 + 1
+    Nu_fg = Nu_fg * 2 + 1
+    Nv_fg = Nv_fg * 2 + 1
+
+    # Sky model
+
+    """
+    The sky model and model uv plane must satisfy Nyquist sampling to avoid
+    any spurious errors in the analysis.  In this case, Nyquist sampling
+    requires at least two image domain pixels per minimum fringe wavelength.
+    The minimum fringe wavelength is the inverse of the maximum sampled |u|,
+    i.e.
+
+    min_fringe_wavelength = 1 / |u| = 1 / sqrt(u^2 + v^2)
+
+    Given this wavelength, we then need to choose the Nside of the sky model
+    such that the pixel width, calculated as the square root of the pixel
+    area, is less than or equal to `min_fringe_wavelength / 2` or
+
+    2 * pixel_width(Nside) <= min_fringe_wavelength
+    """
+    u_max_uv_model = 1 / units.rad * np.max((
+        delta_u_eor.to('1/rad').value*(Nu_eor//2 - 1),
+        delta_u_fg.to('1/rad').value*(Nu_fg//2 - 1)
+    ))
+    v_max_uv_model = 1 / units.rad * np.max((
+        delta_v_eor.to('1/rad').value*(Nv_eor//2 - 1),
+        delta_v_fg.to('1/rad').value*(Nv_fg//2 - 1)
+    ))
+    uv_max_uv_model = np.sqrt(u_max_uv_model**2 + v_max_uv_model**2)
+    min_fringe_wavelength = 1 / uv_max_uv_model
+
+    Nside = 16  # initial guess
+    while 2*ahp.nside2pixarea(Nside).to('rad') > min_fringe_wavelength:
+        Nside *= 2
+    
+    if verbose:
+        rprint("\n", Panel("Configuration"))
+        print(f"{fov_ra_eor        = :f}")
+        print(f"{fov_dec_eor       = :f}")
+        print(f"{fov_ra_fg         = :f}")
+        print(f"{fov_dec_fg        = :f}")
+        print(f"{nf                = }")
+        print(f"{freq_min          = :f}")
+        print(f"{df                = :f}")
+        print(f"{beam_type         = }")
+        if beam_type == "airy":
+            print(f"{diam              = :f}")
+        elif beam_type == "gaussian":
+            print(f"fwhm_deg          = {fwhm_deg.to('deg'):f}")
+            print(f"Nsigma            = {Nsigma:f}")
+
+        rprint(Panel("BayesEoR Model Parameters"))
+        print(f"{Nu_eor = }")
+        print(f"{Nv_eor = }")
+        print(f"{Nu_fg  = }")
+        print(f"{Nv_fg  = }")
+        print(f"{Nside  = }", end="\n\n")
+    
+    if plot:
+        fig, axs = plt.subplots(
+            1, 2, figsize=(21, 10), sharey=False, gridspec_kw={'wspace': 0.1}
+        )
+
+        axs[0].set_title('EoR Model')
+        axs[1].set_title('FG Model')
+
+        for ax in axs:
+            # Plot the uv sampling of the instrument
+            ax.scatter(
+                uvs[:, 0],
+                uvs[:, 1],
+                color='k',
+                marker='o',
+                label='UV Sampling'
+            )
+
+        # Plot aperture width as a circle around the max u (v)
+        u_max_ind = np.where(uvs[:, 0] == u_max_inst_model.value)
+        v_max_ind = np.where(uvs[:, 1] == v_max_inst_model.value)
+        for ax in axs:
+            circle_u = plt.Circle(
+                *uvs[u_max_ind].value, aperture_width.value/2, ec='k',
+                fc='none'
+            )
+            label = 'Aperture function width'
+            if beam_type == "gaussian":
+                label += fr' ($N_\sigma$ = {Nsigma})'
+            circle_v = plt.Circle(
+                *uvs[v_max_ind].value, aperture_width.value/2, ec='k',
+                fc='none', label=label
+            )
+            ax.add_patch(circle_u)
+            ax.add_patch(circle_v)
+
+        plot_model_uv_grid(axs[0], Nu_eor, delta_u_eor, Nv_eor, delta_v_eor)
+        plot_model_uv_grid(axs[1], Nu_fg, delta_u_fg, Nv_fg, delta_v_fg)
+
+        xmin = np.min((axs[0].get_xlim()[0], axs[1].get_xlim()[0]))
+        xmax = np.max((axs[0].get_xlim()[1], axs[1].get_xlim()[1]))
+        ymin = np.min((axs[0].get_ylim()[0], axs[1].get_ylim()[0]))
+        ymax = np.max((axs[0].get_ylim()[1], axs[1].get_ylim()[1]))
+        for ax in axs:
+            ax.set_xlim(xmin, xmax)
+            ax.set_ylim(ymin, ymax)
+            ax.set_aspect('equal')
+            ax.legend(loc='upper right')
+            ax.set_xlabel(r'$u$ [$\lambda$]')
+        axs[0].set_ylabel(r'$v$ [$\lambda$]')
+
+        plt.show()
+    
+    return Nu_eor, Nv_eor, Nu_fg, Nv_fg, Nside
