@@ -51,10 +51,10 @@ def generate_gaussian_noise(
         pairs based on `uvw_array_meters`.
 
     """
+    nbls = len(uvw_array_meters)
     if sigma == 0.0:
         complex_noise_hermitian = np.zeros(len(s)) + 0.0j
     else:
-        nbls = len(uvw_array_meters)
         ndata = nbls * nt * nf
         if random_seed:
             mpiprint(f"Seeding numpy.random with {random_seed}", rank=rank)
