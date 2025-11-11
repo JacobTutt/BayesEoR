@@ -3,7 +3,7 @@ from astropy.constants import c
 from astropy import units
 from astropy.time import Time
 from astropy.units import Quantity
-from astropy_healpix import healpy as ahp
+import astropy_healpix as ahp
 import matplotlib.pyplot as plt
 from pathlib import Path
 from rich import print as rprint
@@ -322,6 +322,15 @@ def validate_model(
         nt = jds.size
         uvs_m = Quantity(vis_dict["uvws"][0, :, :2], unit="m")
 
+    if neta is None:
+        neta = nf
+    if nv is None:
+        nv = nu
+    if nu_fg is None:
+        nu_fg = nu
+    if nv_fg is None:
+        nv_fg = nu_fg
+
     # Sky model params
     if not isinstance(fov_ra_eor, Quantity):
         fov_ra_eor = Quantity(fov_ra_eor, unit="deg")
@@ -355,7 +364,9 @@ def validate_model(
         if diam is not None:
             diam = Quantity(diam, unit="m")
 
-    # Required model uv-plane params
+    # --- Derived Params ---
+    if verbose and rank == 0:
+        mpiprint("\n", Panel("Required Model uv-Plane Parameters"))
     nu_req, nv_req, nu_fg_req, nv_fg_req, nside_req = get_uv_model_params(
         fov_ra_eor=fov_ra_eor,
         fov_dec_eor=fov_dec_eor,
@@ -371,20 +382,48 @@ def validate_model(
         verbose=False
     )
     if verbose and rank == 0:
-        mpiprint("\n", Panel("Required Model uv-Plane Parameters"))
-        mpiprint(f"nu:    {nu_req}")
-        mpiprint(f"nv:    {nv_req}")
-        mpiprint(f"nu_fg: {nu_fg_req}")
-        mpiprint(f"nv_fg: {nv_fg_req}")
+        col_str = f"Parameter     Required"
+        dash_str = f"---------     --------"
+        if np.any([x is not None for x in [nu, nv, nu_fg, nv_fg]]):
+            col_str += "     Input"
+            dash_str += "     -----"
+        mpiprint(f"{col_str}\n{dash_str}")
+        mpiprint(f"nu            {nu_req:<13.0f}", end="")
+        if nu is not None:
+            if nu < nu_req:
+                style = "red bold"
+            else:
+                style = "green"
+            mpiprint(f"{nu}", style=style)
+        mpiprint(f"nv            {nv_req:<13.0f}", end="")
+        if nv is not None:
+            if nv < nv_req:
+                style = "red bold"
+            else:
+                style = "green"
+            mpiprint(f"{nv}", style=style)
+        mpiprint(f"nu_fg         {nu_fg_req:<13.0f}", end="")
+        if nu_fg is not None:
+            if nu_fg < nu_fg_req:
+                style = "red bold"
+            else:
+                style = "green"
+            mpiprint(f"{nu_fg}", style=style)
+        mpiprint(f"nv_fg         {nv_fg_req:<13.0f}", end="")
+        if nv_fg is not None:
+            if nv_fg < nv_fg_req:
+                style = "red bold"
+            else:
+                style = "green"
+            mpiprint(f"{nv_fg}", style=style)
     if nu is not None:
         if nu < nu_req:
             mpiprint(
-                f"\n[bold]WARNING:[/bold] the provided value of nu ({nu}) is "
-                f"smaller than the required nu ({nu_req}) for the given "
+                f"\n[bold red]WARNING:[/bold red] the provided value of nu "
+                f"({nu}) is smaller than the required nv ({nu_req}) for the "
                 f"instrument and beam model.  Set nu >= {nu_req} to fully "
                 f"encompass the specified baselines in the EoR model "
                 f"uv-plane.",
-                style="red",
                 rank=print_rank
             )
         elif nu > nu_req:
@@ -398,12 +437,11 @@ def validate_model(
     if nv is not None:
         if nv < nv_req:
             mpiprint(
-                f"\n[bold]WARNING:[/bold] the provided value of nv ({nv}) is "
-                f"smaller than the required nv ({nv_req}) for the given "
-                f"instrument and beam model.  Set nv >= {nv_req} to fully "
-                f"encompass the specified baselines in the EoR model "
+                f"\n[bold red]WARNING:[/bold red] the provided value of nv "
+                f"({nv}) is smaller than the required nv ({nv_req}) for the "
+                f"given instrument and beam model.  Set nv >= {nv_req} to "
+                f"fully encompass the specified baselines in the EoR model "
                 f"uv-plane.",
-                style="red",
                 rank=print_rank
             )
         elif nv > nv_req:
@@ -417,12 +455,11 @@ def validate_model(
     if nu_fg is not None:
         if nu_fg < nu_fg_req:
             mpiprint(
-                f"\n[bold]WARNING:[/bold] the provided value of nu_fg "
+                f"\n[bold red]WARNING:[/bold red] the provided value of nu_fg "
                 f"({nu_fg}) is smaller than the required nu_fg ({nu_fg_req}) "
                 f"for the given instrument and beam model.  Set nu_fg >= "
                 f"{nu_fg_req} to fully encompass the specified baselines in "
                 f"the foreground model uv-plane.",
-                style="red",
                 rank=print_rank
             )
         elif nu_fg > nu_fg_req:
@@ -436,12 +473,11 @@ def validate_model(
     if nv_fg is not None:
         if nv_fg < nv_fg_req:
             mpiprint(
-                f"\n[bold]WARNING:[/bold] the provided value of nv_fg "
+                f"\n[bold red]WARNING:[/bold red] the provided value of nv_fg "
                 f"({nv_fg}) is smaller than the required nv_fg ({nv_fg_req}) "
                 f"for the given instrument and beam model.  Set nv_fg >= "
                 f"{nv_fg_req} to fully encompass the specified baselines in "
                 f"the foreground model uv-plane.",
-                style="red",
                 rank=print_rank
             )
         elif nv_fg > nv_fg_req:
@@ -453,18 +489,28 @@ def validate_model(
                 rank=print_rank
             )
     
-    # Required sky model params
     if verbose and rank == 0:
         mpiprint("\n", Panel("Required Sky Model Parameters"))
-        mpiprint(f"nside: {nside}")
+        col_str = f"Parameter     Required"
+        dash_str = f"---------     --------"
+        if nside is not None:
+            col_str += "     Input"
+            dash_str += "     -----"
+        mpiprint(f"{col_str}\n{dash_str}")
+        mpiprint(f"nside         {nside_req:<13.0f}", end="")
+        if nside is not None:
+            if nside < nside_req:
+                style = "red bold"
+            else:
+                style = "green"
+            mpiprint(f"{nside}", style=style)
     if nside is not None:
         if nside < nside_req:
             mpiprint(
-                f"\n[bold]WARNING:[/bold] the provided value of nside "
+                f"\n[bold red]WARNING:[/bold red] the provided value of nside "
                 f"({nside}) is smaller than the required nside ({nside_req}). "
                 f" Set nside >= {nside_req} to Nyquist sample the HEALPix "
                 f"sky model.",
-                style="red",
                 rank=print_rank
             )
         if nside > nside_req:
@@ -742,7 +788,10 @@ def get_uv_model_params(
     min_fringe_wavelength = 1 / uv_max_uv_model
 
     nside = 16  # initial guess
-    while 2*ahp.nside2pixarea(nside).to('rad') > min_fringe_wavelength:
+    while (
+        2*ahp.nside_to_pixel_resolution(nside).to("rad")
+        > min_fringe_wavelength
+    ):
         nside *= 2
     
     if verbose:
