@@ -1,22 +1,24 @@
-import numpy as np
+import time
 from collections.abc import Sequence
 from pathlib import Path
-from pymultinest.solve import solve
-import time
 
-from .posterior import PriorC, PowerSpectrumPosteriorProbability
+import numpy as np
+from pymultinest.solve import solve
+
+from .posterior import PowerSpectrumPosteriorProbability, PriorC
 from .utils import mpiprint
+
 
 def run(
     *,
-    pspp : PowerSpectrumPosteriorProbability,
-    priors : Sequence[float],
-    n_live_points : int | None = None,
-    calc_avg_eval : bool = False,
-    avg_iters : int = 10,
-    out_dir : Path | str = "./",
-    sampler : str = "multinest",
-    rank : int = 0
+    pspp: PowerSpectrumPosteriorProbability,
+    priors: Sequence[float],
+    n_live_points: int | None = None,
+    calc_avg_eval: bool = False,
+    avg_iters: int = 10,
+    out_dir: Path | str = "./",
+    sampler: str = "multinest",
+    rank: int = 0,
 ):
     """
     Run a power spectrum analysis.
@@ -63,6 +65,7 @@ def run(
             "When using MultiNest, the path to the sampler output directory "
             "`out_dir` must be <= 100 characters in length"
         )
+
         # Log-likelihood wrapper function for MultiNest
         def loglikelihood(theta, calc_likelihood=pspp.posterior_probability):
             return calc_likelihood(theta)[0]
@@ -84,7 +87,7 @@ def run(
         # a finite value for the posterior probability
         mpiprint(
             "\nCalculating average posterior probability evaulation time:",
-            style="bold"
+            style="bold",
         )
         start = time.time()
         pspp_verbose = pspp.verbose
@@ -95,13 +98,11 @@ def run(
                 mpiprint(
                     "WARNING: Infinite value returned in posterior calculation!",
                     style="bold red",
-                    rank=rank
+                    rank=rank,
                 )
         avg_eval_time = (time.time() - start) / avg_iters
         mpiprint(
-            f"Average evaluation time: {avg_eval_time} s",
-            rank=rank,
-            end="\n\n"
+            f"Average evaluation time: {avg_eval_time} s", rank=rank, end="\n\n"
         )
 
     if sampler == "multinest":
@@ -110,6 +111,6 @@ def run(
             Prior=prior_c.prior_func,
             n_dims=nkbins,
             outputfiles_basename=sampler_output_base,
-            n_live_points=n_live_points
+            n_live_points=n_live_points,
         )
     mpiprint("\nSampling complete!", rank=rank, end="\n\n")

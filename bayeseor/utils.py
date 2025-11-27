@@ -1,14 +1,18 @@
-import numpy as np
+import hashlib
 import pickle
-from pathlib import Path
 from copy import deepcopy
+from pathlib import Path
+from typing import Optional
 
+import numpy as np
+from mpi4py import MPI
 from rich.console import Console
 
 from . import __version__
 
 cns = Console()
 cns.is_jupyter = False
+
 
 def mpiprint(*args, rank=0, highlight=False, soft_wrap=True, **kwargs):
     """
@@ -99,12 +103,7 @@ def write_log_files(parser, args, out_dir=Path("./"), verbose=False):
 
 
 def save_numpy_dict(
-    fp,
-    arr,
-    args,
-    version=__version__,
-    extra=None,
-    clobber=False
+    fp, arr, args, version=__version__, extra=None, clobber=False
 ):
     """
     Save array to disk with metadata as dictionary.
@@ -128,9 +127,7 @@ def save_numpy_dict(
     if not isinstance(fp, Path):
         fp = Path(fp)
     if fp.exists() and not clobber:
-        raise ValueError(
-            f"clobber is false but file already exists: {fp}"
-        )
+        raise ValueError(f"clobber is false but file already exists: {fp}")
     if extra is not None:
         if not isinstance(extra, dict):
             raise ValueError("extra must be a dictionary")
@@ -188,14 +185,14 @@ def vector_is_hermitian(data, conj_map, nt, nf, nbls, rtol=0, atol=1e-14):
             for bl_ind in conj_map.keys():
                 conj_bl_ind = conj_map[bl_ind]
                 close = np.allclose(
-                    data[start_ind+conj_bl_ind],
-                    data[start_ind+bl_ind].conjugate(),
+                    data[start_ind + conj_bl_ind],
+                    data[start_ind + bl_ind].conjugate(),
                     rtol=rtol,
-                    atol=atol
+                    atol=atol,
                 )
                 if close:
-                    hermitian[start_ind+bl_ind] = 1
-                    hermitian[start_ind+conj_bl_ind] = 1
+                    hermitian[start_ind + bl_ind] = 1
+                    hermitian[start_ind + conj_bl_ind] = 1
     return np.all(hermitian)
 
 
@@ -219,17 +216,98 @@ def write_map_dict(dir, pspp, bm, n, clobber=False, fn="map-dict.npy"):
         If True, overwrite existing dictionary on disk.
     fn : str
         Filename for dictionary.
-    
+
     """
     fp = Path(dir) / fn
     if not fp.exists() or clobber:
         pspp_copy = deepcopy(pspp)
         del pspp.T_Ninv_T, pspp.dbar, pspp.Ninv
-        map_dict = {
-            "pspp": pspp_copy,
-            "bm": bm,
-            "n": n
-        }
+        map_dict = {"pspp": pspp_copy, "bm": bm, "n": n}
         print(f"\nWriting MAP dict to {fp}\n")
         with open(fp, "wb") as f:
             pickle.dump(map_dict, f, protocol=4)
+
+
+class ShortTempPathManager:
+    """
+    Manages the creation and cleanup of a short symbolic link to an output directory.
+
+    This class is designed to handle MultiNest's 100-character path length limitation
+    by creating a temporary symbolic link to output_dir with a shorter path
+    to pass to MultiNest.
+
+    Attributes:
+        output_dir (Path): The actual output directory.
+        tmp_dir (Path): The temporary directory to store symbolic links.
+        short_dir (Path): The symbolic link path.
+        mpi_comm (MPI.Comm): The MPI communicator.
+        mpi_rank (int): The rank of the current process.
+    """
+
+    def __init__(
+        self,
+        output_dir: str | Path,
+        tmp_dir: str | Path = "./tmp",
+        mpi_comm: Optional[MPI.Comm] = None,
+    ) -> None:
+        """
+        Initialise the ShortTempPathManager and create the symbolic link.
+
+        Args:
+            output_dir (str | Path): The actual output directory.
+            tmp_dir (str | Path): The temporary directory to store symbolic links.
+            mpi_comm (MPI.Comm, optional): The MPI communicator.
+            If None, defaults to MPI.COMM_WORLD.
+        """
+        self.output_dir: Path = Path(output_dir).absolute()
+        self.tmp_dir: Path = Path(tmp_dir)
+        self.mpi_comm: MPI.Comm = mpi_comm or MPI.COMM_WORLD
+        self.mpi_rank: int = self.mpi_comm.Get_rank()
+
+        # Generate the short path
+        path_hash: str = hashlib.md5(str(self.output_dir).encode()).hexdigest()[
+            :8
+        ]
+        self.short_dir: Path = self.tmp_dir / f"mn_{path_hash}"
+
+        # Create the symbolic link (only on rank 0)
+        if self.mpi_rank == 0:
+            self._create_short_path()
+
+        # Synchronise all ranks to ensure the symbolic link is created
+        self.mpi_comm.Barrier()
+
+    def _create_short_path(self) -> None:
+        """
+        Create a short symbolic link to the output directory.
+        """
+        # Ensure the temporary directory exists
+        self.tmp_dir.mkdir(exist_ok=True)
+
+        # Remove existing symbolic link if it exists
+        if self.short_dir.exists() or self.short_dir.is_symlink():
+            self.short_dir.unlink()
+
+        # Create the symbolic link
+        self.short_dir.symlink_to(self.output_dir)
+
+    def cleanup(self) -> None:
+        """
+        Remove the symbolic link if it exists (only on rank 0).
+        """
+        if self.mpi_rank == 0:
+            if self.short_dir.exists() or self.short_dir.is_symlink():
+                self.short_dir.unlink()
+
+        # Synchronise all ranks to ensure cleanup is complete
+        self.mpi_comm.Barrier()
+
+    @property
+    def short_out_dir(self) -> Path:
+        """
+        Get the short symbolic link path.
+
+        Returns:
+            Path: The short symbolic link path.
+        """
+        return self.short_dir
