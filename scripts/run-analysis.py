@@ -79,7 +79,6 @@ else:
         # Use MultiNestPathManager to manage the short path
         path_manager = MultiNestPathManager(out_dir, rank)
         out_dir = path_manager.setup_multinest_path()
-        # assert False, "Debug stop"
         # ---
 
     else:

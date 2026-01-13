@@ -254,19 +254,29 @@ class ShortTempPathManager:
         Initialise the ShortTempPathManager and create the symbolic link.
 
         Args:
-            output_dir (str | Path): The actual output directory.
+            output_dir (str | Path): The actual output directory. This directory
+                must already exist and be a directory.
             tmp_dir (str | Path): The temporary directory to store symbolic links.
             mpi_comm (MPI.Comm, optional): The MPI communicator.
             If None, defaults to MPI.COMM_WORLD.
         """
         self.output_dir: Path = Path(output_dir).absolute()
-        self.tmp_dir: Path = Path(tmp_dir)
+        if not self.output_dir.exists():
+            raise FileNotFoundError(
+                f"output_dir '{self.output_dir}' does not exist. Please create it "
+                "before initialising ShortTempPathManager."
+            )
+        if not self.output_dir.is_dir():
+            raise NotADirectoryError(
+                f"output_dir '{self.output_dir}' is not a directory."
+            )
+        self.tmp_dir: Path = Path(tmp_dir).absolute()
         self.mpi_comm: MPI.Comm = mpi_comm or MPI.COMM_WORLD
         self.mpi_rank: int = self.mpi_comm.Get_rank()
 
-        # Generate the short path
+        # Generate the short path with a longer hash to reduce collision risk
         path_hash: str = hashlib.md5(str(self.output_dir).encode()).hexdigest()[
-            :8
+            :16
         ]
         self.short_dir: Path = self.tmp_dir / f"mn_{path_hash}"
 

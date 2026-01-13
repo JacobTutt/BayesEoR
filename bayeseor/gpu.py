@@ -88,5 +88,4 @@ class GPUInterface(object):
                 f"\nException loading GPU encountered on rank {self.rank}...",
                 rank=self.rank,
             )
-            # Replace invalid "print(repr(e), rank=self.rank)" line
             mpiprint(repr(e), rank=self.rank)
