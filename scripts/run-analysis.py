@@ -77,7 +77,7 @@ else:
         # by creating a temporary symbolic link to output_dir with
         # a shorter path that is passed to MultiNest.
         # Use MultiNestPathManager to manage the short path
-        path_manager = MultiNestPathManager(out_dir, rank)
+        path_manager = MultiNestPathManager(out_dir, rank, mpi_comm=mpi_comm)
         out_dir = path_manager.setup_multinest_path()
         # ---
 

@@ -2496,6 +2496,8 @@ class MultiNestPathManager:
         The temporary short path created as a symbolic link to the long path.
     rank : int
         The MPI rank of the current process.
+    mpi_comm : MPI.Comm
+        The MPI communicator to use for coordination.
 
     Methods
     -------
@@ -2508,10 +2510,12 @@ class MultiNestPathManager:
     ```python
     from bayeseor.setup import MultiNestPathManager
     from pathlib import Path
+    from mpi4py import MPI
 
     out_dir = Path("/very/long/path/to/output_directory")
-    rank = 0
-    path_manager = MultiNestPathManager(out_dir, rank)
+    mpi_comm = MPI.COMM_WORLD
+    rank = mpi_comm.Get_rank()
+    path_manager = MultiNestPathManager(out_dir, rank, mpi_comm=mpi_comm)
 
     # Setup MultiNest path
     out_dir = path_manager.setup_multinest_path()
@@ -2523,7 +2527,7 @@ class MultiNestPathManager:
     ```
     """
 
-    def __init__(self, out_dir: Path, rank: int):
+    def __init__(self, out_dir: Path, rank: int, mpi_comm=None):
         """
         Initializes the MultiNestPathManager.
 
@@ -2533,12 +2537,16 @@ class MultiNestPathManager:
             The original long path to the output directory.
         rank : int
             The MPI rank of the current process.
+        mpi_comm : MPI.Comm, optional
+            The MPI communicator to use for coordination.
+            If None, defaults to MPI.COMM_WORLD.
         """
         self.rank = rank
+        self.mpi_comm = mpi_comm
         # Step 1.
         self.long_out_dir = out_dir
         # Step 2a.
-        self.short_path_manager = ShortTempPathManager(out_dir)
+        self.short_path_manager = ShortTempPathManager(out_dir, mpi_comm=mpi_comm)
         # Step 2b.
         self.short_out_dir = self.short_path_manager.short_out_dir
 
