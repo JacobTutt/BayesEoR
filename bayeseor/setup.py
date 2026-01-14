@@ -2507,6 +2507,7 @@ class MultiNestPathManager:
     -------
     ```python
     from bayeseor.setup import MultiNestPathManager
+    from pathlib import Path
 
     out_dir = Path("/very/long/path/to/output_directory")
     rank = 0
@@ -2565,7 +2566,6 @@ class MultiNestPathManager:
         """
         self.short_path_manager.cleanup()
         if self.rank == 0:
-            # mpiprint(f"Cleaned up short path: {self.short_out_dir}")
             mpiprint(
                 f"Final MultiNest output base: {self.long_out_dir}",
             )
