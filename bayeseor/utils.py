@@ -287,7 +287,7 @@ class ShortTempPathManager:
         if self.mpi_rank == 0:
             try:
                 self._create_short_path()
-            except (OSError, FileExistsError, PermissionError) as e:
+            except OSError as e:
                 success = False
                 error_msg = str(e)
                 exception_type = type(e).__name__
