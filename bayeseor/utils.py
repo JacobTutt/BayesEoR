@@ -327,7 +327,7 @@ class ShortTempPathManager:
                 if self.short_dir.resolve() == self.output_dir.resolve():
                     # Symlink already points to the correct target, no action needed
                     return
-            except (OSError, RuntimeError):
+            except OSError:
                 # If we can't resolve the symlink, it may be broken, so recreate it
                 pass
             # Symlink exists but points to wrong target, remove it
