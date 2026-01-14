@@ -321,8 +321,19 @@ class ShortTempPathManager:
         # Ensure the temporary directory exists
         self.tmp_dir.mkdir(exist_ok=True)
 
-        # Remove existing symbolic link if it exists
-        if self.short_dir.exists() or self.short_dir.is_symlink():
+        # Check if symlink already exists and points to the correct target
+        if self.short_dir.is_symlink():
+            try:
+                if self.short_dir.resolve() == self.output_dir.resolve():
+                    # Symlink already points to the correct target, no action needed
+                    return
+            except (OSError, RuntimeError):
+                # If we can't resolve the symlink, it may be broken, so recreate it
+                pass
+            # Symlink exists but points to wrong target, remove it
+            self.short_dir.unlink()
+        elif self.short_dir.exists():
+            # Path exists but is not a symlink, remove it
             self.short_dir.unlink()
 
         # Create the symbolic link
