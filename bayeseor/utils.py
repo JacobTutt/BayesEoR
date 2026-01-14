@@ -278,10 +278,10 @@ class ShortTempPathManager:
         self.mpi_comm: MPI.Comm = mpi_comm or MPI.COMM_WORLD
         self.mpi_rank: int = self.mpi_comm.Get_rank()
 
-        # Generate the short path with a longer hash to reduce collision risk
-        path_hash: str = hashlib.md5(str(self.output_dir).encode()).hexdigest()[
-            :16
-        ]
+        # Generate the short path using a stronger hash to reduce collision risk
+        path_hash: str = hashlib.sha256(
+            str(self.output_dir).encode("utf-8")
+        ).hexdigest()[:16]
         self.short_dir: Path = self.tmp_dir / f"mn_{path_hash}"
 
         # Create the symbolic link (only on rank 0) with error handling
