@@ -2503,8 +2503,8 @@ class MultiNestPathManager:
         Sets up the short path for MultiNest and reassigns `out_dir`.
     cleanup():
         Cleans up the symbolic link after MultiNest sampling.
-    Example
-    -------
+    Examples
+    --------
     ```python
     from bayeseor.setup import MultiNestPathManager
     from pathlib import Path
