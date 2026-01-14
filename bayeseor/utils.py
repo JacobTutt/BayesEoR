@@ -236,6 +236,10 @@ class ShortTempPathManager:
     by creating a temporary symbolic link to output_dir with a shorter path
     to pass to MultiNest.
 
+    The symbolic link is created only on MPI rank 0, and errors during creation
+    are broadcast to all ranks to prevent deadlocks. If symlink creation fails,
+    all ranks will raise a RuntimeError containing the original exception details.
+
     Attributes:
         output_dir (Path): The actual output directory.
         tmp_dir (Path): The temporary directory to store symbolic links.
@@ -280,9 +284,32 @@ class ShortTempPathManager:
         ]
         self.short_dir: Path = self.tmp_dir / f"mn_{path_hash}"
 
-        # Create the symbolic link (only on rank 0)
+        # Create the symbolic link (only on rank 0) with error handling
+        # Initialize on all ranks - these will be overwritten by broadcast
+        success = True
+        error_msg = None
+        exception_type = None
         if self.mpi_rank == 0:
-            self._create_short_path()
+            try:
+                self._create_short_path()
+            except OSError as e:
+                success = False
+                error_msg = str(e)
+                exception_type = type(e).__name__
+
+        # Broadcast success status to all ranks
+        success = self.mpi_comm.bcast(success, root=0)
+        error_msg = self.mpi_comm.bcast(error_msg, root=0)
+        exception_type = self.mpi_comm.bcast(exception_type, root=0)
+
+        # If creation failed, raise the error on all ranks
+        # Note: We wrap the original OSError in a RuntimeError since
+        # exception objects cannot be serialized across MPI processes
+        if not success:
+            raise RuntimeError(
+                f"Failed to create symbolic link on rank 0 "
+                f"({exception_type}): {error_msg}"
+            )
 
         # Synchronise all ranks to ensure the symbolic link is created
         self.mpi_comm.Barrier()
