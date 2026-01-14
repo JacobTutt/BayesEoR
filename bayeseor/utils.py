@@ -280,9 +280,25 @@ class ShortTempPathManager:
         ]
         self.short_dir: Path = self.tmp_dir / f"mn_{path_hash}"
 
-        # Create the symbolic link (only on rank 0)
+        # Create the symbolic link (only on rank 0) with error handling
+        success = True
+        error_msg = None
         if self.mpi_rank == 0:
-            self._create_short_path()
+            try:
+                self._create_short_path()
+            except Exception as e:
+                success = False
+                error_msg = f"{type(e).__name__}: {str(e)}"
+
+        # Broadcast success status to all ranks
+        success = self.mpi_comm.bcast(success, root=0)
+        error_msg = self.mpi_comm.bcast(error_msg, root=0)
+
+        # If creation failed, raise the error on all ranks
+        if not success:
+            raise RuntimeError(
+                f"Failed to create symbolic link on rank 0: {error_msg}"
+            )
 
         # Synchronise all ranks to ensure the symbolic link is created
         self.mpi_comm.Barrier()
