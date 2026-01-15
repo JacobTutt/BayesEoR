@@ -61,9 +61,18 @@ def run(
 
     sampler = sampler.lower()
     if sampler == "multinest":
-        assert len(out_dir.as_posix()) <= 100, (
-            "When using MultiNest, the path to the sampler output directory "
-            "`out_dir` must be <= 100 characters in length"
+        # The longest file name created by MultiNest is:
+        #  <file-root>post_equal_weights.dat
+        #  which is 22 characters longer than the file root.
+        # Assuming the file prefix is "data-", this means the maximum allowed
+        # out_dir path length is min_path_length = 100 - 22 - 5 = 73 characters.
+        # Check that the output directory path length is <= min_path_length characters
+        min_path_length = 73
+        assert len(out_dir.as_posix()) <= min_path_length, (
+            "When using MultiNest, the full file path must be <= 100 characters in \n"
+            "length.\n Using the default `data-` file prefix, the path to the sampler\n"
+            f"directory output `out_dir` must be <= {min_path_length} characters in "
+            "length."
         )
 
         # Log-likelihood wrapper function for MultiNest
@@ -88,6 +97,7 @@ def run(
         mpiprint(
             "\nCalculating average posterior probability evaulation time:",
             style="bold",
+            rank=rank,
         )
         start = time.time()
         pspp_verbose = pspp.verbose

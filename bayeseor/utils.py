@@ -1,5 +1,6 @@
 import hashlib
 import pickle
+import tempfile
 from copy import deepcopy
 from pathlib import Path
 from typing import Optional
@@ -251,7 +252,7 @@ class ShortTempPathManager:
     def __init__(
         self,
         output_dir: str | Path,
-        tmp_dir: str | Path = "./tmp",
+        tmp_dir: str | Path | None = None,
         mpi_comm: Optional[MPI.Comm] = None,
     ) -> None:
         """
@@ -260,7 +261,8 @@ class ShortTempPathManager:
         Args:
             output_dir (str | Path): The actual output directory. This directory
                 must already exist and be a directory.
-            tmp_dir (str | Path): The temporary directory to store symbolic links.
+            tmp_dir (str | Path, optional): The temporary directory to store symbolic
+                links. If None, uses the system temp directory (e.g., /tmp on Linux).
             mpi_comm (MPI.Comm, optional): The MPI communicator.
             If None, defaults to MPI.COMM_WORLD.
         """
@@ -274,6 +276,9 @@ class ShortTempPathManager:
             raise NotADirectoryError(
                 f"output_dir '{self.output_dir}' is not a directory."
             )
+
+        if tmp_dir is None:
+            tmp_dir = tempfile.gettempdir()
         self.tmp_dir: Path = Path(tmp_dir).absolute()
         self.mpi_comm: MPI.Comm = mpi_comm or MPI.COMM_WORLD
         self.mpi_rank: int = self.mpi_comm.Get_rank()
