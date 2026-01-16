@@ -1,6 +1,6 @@
 import hashlib
 import pickle
-import tempfile
+import shutil
 from copy import deepcopy
 from pathlib import Path
 from typing import Optional
@@ -277,9 +277,15 @@ class ShortTempPathManager:
                 f"output_dir '{self.output_dir}' is not a directory."
             )
 
+        # Do not use self.tmp_dir: Path = Path(tmp_dir).absolute() otherwise we
+        # risk exceeding the path length limit.
+        # Instead, use relative paths for the temporary symlink directory.
+        # Do not use /tmp/ or tempfile.gettempdir() despite it having a short absolute
+        # path because in MPI environments running on clusters, /tmp/ may not be
+        # shared across nodes.
         if tmp_dir is None:
-            tmp_dir = tempfile.gettempdir()
-        self.tmp_dir: Path = Path(tmp_dir).absolute()
+            tmp_dir = "./bayeseor_mn_chains_symlinks/"
+        self.tmp_dir: Path = Path(tmp_dir)
         self.mpi_comm: MPI.Comm = mpi_comm or MPI.COMM_WORLD
         self.mpi_rank: int = self.mpi_comm.Get_rank()
 
@@ -287,6 +293,7 @@ class ShortTempPathManager:
         path_hash: str = hashlib.sha256(
             str(self.output_dir).encode("utf-8")
         ).hexdigest()[:16]
+
         self.short_dir: Path = self.tmp_dir / f"mn_{path_hash}"
 
         # Create the symbolic link (only on rank 0) with error handling
@@ -338,8 +345,13 @@ class ShortTempPathManager:
             # Symlink exists but points to wrong target, remove it
             self.short_dir.unlink()
         elif self.short_dir.exists():
-            # Path exists but is not a symlink, remove it
-            self.short_dir.unlink()
+            # Exists but is not a symlink (could be file or directory)
+            if self.short_dir.is_dir():
+                print(f"Removing directory: {self.short_dir}")
+                shutil.rmtree(self.short_dir)
+            else:
+                print(f"Removing file: {self.short_dir}")
+                self.short_dir.unlink()
 
         # Create the symbolic link
         self.short_dir.symlink_to(self.output_dir)
@@ -350,7 +362,12 @@ class ShortTempPathManager:
         """
         if self.mpi_rank == 0:
             if self.short_dir.exists() or self.short_dir.is_symlink():
-                self.short_dir.unlink()
+                if self.short_dir.is_dir() and not self.short_dir.is_symlink():
+                    print(f"Removing directory: {self.short_dir}")
+                    shutil.rmtree(self.short_dir)
+                else:
+                    print(f"Removing symbolic link: {self.short_dir}")
+                    self.short_dir.unlink()
 
         # Synchronise all ranks to ensure cleanup is complete
         self.mpi_comm.Barrier()

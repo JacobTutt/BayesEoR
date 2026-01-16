@@ -672,6 +672,11 @@ def run_setup(
         # building the matrix stack, if running in a Slurm environment, so
         # we need to first make the file_root_dir directory a valid, writable
         # directory if it doesn't already exist.
+        mpiprint(
+            "file_root_dir is None; generating new output directory name.",
+            rank=print_rank,
+        )
+
         file_root_dir = generate_file_root_directory(
             nu=nu,
             nv=nv,
@@ -693,6 +698,10 @@ def run_setup(
             npl_sh=npl,
             fit_for_shg_amps=fit_for_shg_amps,
             output_dir=output_dir,
+        )
+    else:
+        print(
+            f"Resuming analysis from existing output directory: \n{file_root_dir=}"
         )
 
     # This is the full path to the sampler output chains directory
@@ -2546,7 +2555,9 @@ class MultiNestPathManager:
         # Step 1.
         self.long_out_dir = out_dir
         # Step 2a.
-        self.short_path_manager = ShortTempPathManager(out_dir, mpi_comm=mpi_comm)
+        self.short_path_manager = ShortTempPathManager(
+            out_dir, mpi_comm=mpi_comm
+        )
         # Step 2b.
         self.short_out_dir = self.short_path_manager.short_out_dir
 
@@ -2562,7 +2573,7 @@ class MultiNestPathManager:
         """
         if self.rank == 0:
             mpiprint(
-                f"Created short path: {self.long_out_dir} -> {self.short_out_dir}"
+                f"Created short path: symlink {self.short_out_dir} pointing to {self.long_out_dir}"
             )
             mpiprint(f"MultiNest output base: {self.short_out_dir}")
         return self.short_out_dir

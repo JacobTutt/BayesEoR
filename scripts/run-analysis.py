@@ -96,5 +96,10 @@ else:
 
     # Clean up temporary short path if using MultiNest
     if args.use_Multinest:
+        # Ensure all ranks have finished MultiNest + PyMultiNest post-processing
+        # before rank 0 unlinks the temporary short path.
+        if mpi_comm is not None:
+            mpi_comm.Barrier()
+
         # Cleanup symlinks after sampling
         path_manager.cleanup()
