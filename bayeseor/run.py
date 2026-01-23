@@ -62,17 +62,23 @@ def run(
     sampler = sampler.lower()
     if sampler == "multinest":
         # The longest file name created by MultiNest is:
-        #  <file-root>post_equal_weights.dat
-        #  which is 22 characters longer than the file root.
-        # Assuming the file prefix is "data-", this means the maximum allowed
-        # out_dir path length is min_path_length = 100 - 22 - 5 = 73 characters.
-        # Check that the output directory path length is <= min_path_length characters
-        min_path_length = 73
-        assert len(out_dir.as_posix()) <= min_path_length, (
+        # <file-root-dir><file-root>post_equal_weights.dat
+        # which is 22 characters longer than <file-root-dir><file-root>.
+        # Assuming the file-root is "data-", which is currently hard-coded above,
+        # this means the maximum allowed out_dir path length is
+        # max_path_length = 100 - 22 - 5 = 73 characters.
+        # Check that the output directory path length is <= max_path_length characters
+        # ---
+        # Possible upgrade (JB): check MultiNest for the output file names
+        # to calculate max_path_length directly from pymultinest.
+        # ---
+        max_path_length = 73
+        assert len(out_dir.as_posix()) <= max_path_length, (
             "When using MultiNest, the full file path must be <= 100 characters in \n"
             "length.\n Using the default `data-` file prefix, the path to the sampler\n"
-            f"directory output `out_dir` must be <= {min_path_length} characters in "
-            "length."
+            f"directory output `out_dir` must be <= {max_path_length} characters in \n"
+            "length. Either <file-root-dir> must be shortened or the MultiNest file \n"
+            "prefix must be changed from `data-` to a shorter string."
         )
 
         # Log-likelihood wrapper function for MultiNest
@@ -105,14 +111,18 @@ def run(
         for _ in range(avg_iters):
             post = pspp.posterior_probability(np.array(priors).mean(axis=1))[0]
             if not np.isfinite(post):
+                # rank kwarg deliberately omitted to print warning on all ranks
                 mpiprint(
                     "WARNING: Infinite value returned in posterior calculation!",
                     style="bold red",
-                    rank=rank,
+                    # rank=rank,
                 )
+        # rank kwarg deliberately omitted to print evaluation time on all ranks
         avg_eval_time = (time.time() - start) / avg_iters
         mpiprint(
-            f"Average evaluation time: {avg_eval_time} s", rank=rank, end="\n\n"
+            f"Average evaluation time: {avg_eval_time} s",
+            # rank=rank,
+            end="\n\n",
         )
 
     if sampler == "multinest":

@@ -10,8 +10,8 @@ from rich.panel import Panel
 from bayeseor import __version__ as bayeseor_version
 from bayeseor.params import BayesEoRParser
 from bayeseor.run import run
-from bayeseor.setup import MultiNestPathManager, run_setup
-from bayeseor.utils import mpiprint, write_log_files
+from bayeseor.setup import run_setup
+from bayeseor.utils import MultiNestPathManager, mpiprint, write_log_files
 
 if __name__ == "__main__":
     from mpi4py import MPI

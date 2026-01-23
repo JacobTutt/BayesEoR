@@ -1,13 +1,18 @@
 import hashlib
+import os
 import pickle
 import shutil
 from copy import deepcopy
 from pathlib import Path
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 import numpy as np
 from mpi4py import MPI
 from rich.console import Console
+
+if TYPE_CHECKING:
+    from mpi4py import MPI
+
 
 from . import __version__
 
@@ -241,12 +246,18 @@ class ShortTempPathManager:
     are broadcast to all ranks to prevent deadlocks. If symlink creation fails,
     all ranks will raise a RuntimeError containing the original exception details.
 
-    Attributes:
-        output_dir (Path): The actual output directory.
-        tmp_dir (Path): The temporary directory to store symbolic links.
-        short_dir (Path): The symbolic link path.
-        mpi_comm (MPI.Comm): The MPI communicator.
-        mpi_rank (int): The rank of the current process.
+    Attributes
+    ----------
+    output_dir : pathlib.Path
+        The actual output directory.
+    tmp_dir : pathlib.Path
+        The temporary directory to store symbolic links.
+    short_dir : pathlib.Path
+        The symbolic link path.
+    mpi_comm : MPI.Comm
+        The MPI communicator.
+    mpi_rank : int
+        The rank of the current process.
     """
 
     def __init__(
@@ -258,13 +269,16 @@ class ShortTempPathManager:
         """
         Initialise the ShortTempPathManager and create the symbolic link.
 
-        Args:
-            output_dir (str | Path): The actual output directory. This directory
-                must already exist and be a directory.
-            tmp_dir (str | Path, optional): The temporary directory to store symbolic
-                links. If None, uses the system temp directory (e.g., /tmp on Linux).
-            mpi_comm (MPI.Comm, optional): The MPI communicator.
-            If None, defaults to MPI.COMM_WORLD.
+        Parameters
+        ----------
+        output_dir : str | pathlib.Path
+            The actual output directory. This directory must already exist and be a
+            directory.
+        tmp_dir : str | pathlib.Path, optional
+            The temporary directory to store symbolic links. If None, a relative
+            directory (./.mn_chains_symlinks/) is used to avoid non-shared /tmp.
+        mpi_comm : MPI.Comm, optional
+            The MPI communicator. If None, defaults to MPI.COMM_WORLD.
         """
         self.output_dir: Path = Path(output_dir).absolute()
         if not self.output_dir.exists():
@@ -284,7 +298,7 @@ class ShortTempPathManager:
         # path because in MPI environments running on clusters, /tmp/ may not be
         # shared across nodes.
         if tmp_dir is None:
-            tmp_dir = "./bayeseor_mn_chains_symlinks/"
+            tmp_dir = "./.mn_chains_symlinks/"
         self.tmp_dir: Path = Path(tmp_dir)
         self.mpi_comm: MPI.Comm = mpi_comm or MPI.COMM_WORLD
         self.mpi_rank: int = self.mpi_comm.Get_rank()
@@ -326,6 +340,20 @@ class ShortTempPathManager:
         # Synchronise all ranks to ensure the symbolic link is created
         self.mpi_comm.Barrier()
 
+    def _is_safe_to_remove(self, path: Path) -> bool:
+        """
+        Return True if `path` resolves inside the configured tmp_dir.
+        Protects against accidental deletion outside tmp_dir.
+        """
+        try:
+            resolved = path.resolve()
+            tmp_resolved = self.tmp_dir.resolve()
+            return str(resolved) == str(tmp_resolved) or str(
+                resolved
+            ).startswith(str(tmp_resolved) + os.sep)
+        except Exception:
+            return False
+
     def _create_short_path(self) -> None:
         """
         Create a short symbolic link to the output directory.
@@ -346,6 +374,11 @@ class ShortTempPathManager:
             self.short_dir.unlink()
         elif self.short_dir.exists():
             # Exists but is not a symlink (could be file or directory)
+            if not self._is_safe_to_remove(self.short_dir):
+                raise RuntimeError(
+                    f"Refusing to remove {self.short_dir}: "
+                    f"it is not inside {self.tmp_dir}"
+                )
             if self.short_dir.is_dir():
                 print(f"Removing directory: {self.short_dir}")
                 shutil.rmtree(self.short_dir)
@@ -381,3 +414,122 @@ class ShortTempPathManager:
             Path: The short symbolic link path.
         """
         return self.short_dir
+
+
+class MultiNestPathManager:
+    """
+    Manages the creation of a temporary symbolic link for MultiNest output directories
+    to work around the 100-character path limitation.
+
+    Steps:
+    1. Create out_dir backup for printing on completion of sampling (long_out_dir)
+    2a. Create unique short path string (short_out_dir)
+    2b. Create symbolic link between out_dir and short_out_dir on rank 0
+    3. Reassign out_dir to short_out_dir for MultiNest use
+    4. After sampling, clean up symbolic link and print long_out_dir
+
+
+    Attributes
+    ----------
+    long_out_dir : Path
+        The original long path to the output directory.
+    short_out_dir : Path
+        The temporary short path created as a symbolic link to the long path.
+    rank : int
+        The MPI rank of the current process.
+    mpi_comm : MPI.Comm
+        The MPI communicator to use for coordination.
+
+    Methods
+    -------
+    setup_multinest_path():
+        Sets up the short path for MultiNest and reassigns `out_dir`.
+    cleanup():
+        Cleans up the symbolic link after MultiNest sampling.
+    Examples
+    --------
+    ```python
+    from bayeseor.setup import MultiNestPathManager
+    from pathlib import Path
+    from mpi4py import MPI
+
+    out_dir = Path("/very/long/path/to/output_directory")
+    mpi_comm = MPI.COMM_WORLD
+    rank = mpi_comm.Get_rank()
+    path_manager = MultiNestPathManager(out_dir, rank, mpi_comm=mpi_comm)
+
+    # Setup MultiNest path
+    out_dir = path_manager.setup_multinest_path()
+
+    # Perform MultiNest sampling...
+
+    # Cleanup after sampling
+    path_manager.cleanup()
+    ```
+    """
+
+    def __init__(
+        self, out_dir: Path, rank: int, mpi_comm: Optional["MPI.Comm"] = None
+    ):
+        """
+        Initializes the MultiNestPathManager.
+
+        Parameters
+        ----------
+        out_dir : Path
+            The original long path to the output directory.
+        rank : int
+            The MPI rank of the current process.
+        mpi_comm : MPI.Comm, optional
+            The MPI communicator to use for coordination.
+            If None, defaults to MPI.COMM_WORLD.
+        """
+        self.rank = rank
+        self.mpi_comm = mpi_comm
+        # Step 1.
+        self.long_out_dir = out_dir
+        # Step 2a.
+        self.short_path_manager = ShortTempPathManager(
+            out_dir, mpi_comm=mpi_comm
+        )
+        # Step 2b.
+        self.short_out_dir = self.short_path_manager.short_out_dir
+
+    def setup_multinest_path(self) -> Path:
+        """
+        Sets up the short path for MultiNest and reassigns `out_dir`.
+        Call this for Step 3.
+
+        Returns
+        -------
+        Path
+            The short path to be used as the MultiNest output directory.
+        """
+        if self.rank == 0:
+            # Print resolved locations to help users locate the symlink and tmp dir
+            try:
+                tmp_resolved = self.short_path_manager.tmp_dir.resolve()
+            except Exception as e:
+                print(f"\nWarning: could not resolve tmp_dir path due to: {e}")
+                print("Using un-resolved tmp_dir path instead.")
+                tmp_resolved = self.short_path_manager.tmp_dir
+
+            mpiprint(
+                f"\nCreated short path: symlink {self.short_out_dir} pointing to {self.long_out_dir}"
+            )
+            mpiprint(f"\nTemporary symlink directory (tmp_dir): {tmp_resolved}")
+
+            mpiprint(f"\nMultiNest output base: {self.short_out_dir}")
+
+        return self.short_out_dir
+
+    def cleanup(self) -> None:
+        """
+        Cleans up the symbolic link after MultiNest sampling.
+        Call this for Step 4.
+        """
+        self.short_path_manager.cleanup()
+        if self.rank == 0:
+            mpiprint(
+                f"Final MultiNest output base: {self.long_out_dir}",
+            )

@@ -84,8 +84,5 @@ class GPUInterface(object):
 
         except Exception as e:
             self.gpu_initialized = False
-            mpiprint(
-                f"\nException loading GPU encountered on rank {self.rank}...",
-                rank=self.rank,
-            )
-            mpiprint(repr(e), rank=self.rank)
+            print(f"\nException loading GPU encountered on rank {rank}...")
+            print(repr(e), rank=self.rank)
