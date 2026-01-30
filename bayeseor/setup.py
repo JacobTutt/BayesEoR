@@ -1609,7 +1609,7 @@ def generate_array_dir(
     nq_sh: int | None = None,
     fit_for_shg_amps: bool = False,
     nu_min_MHz: float,
-    channel_width_MHz=None,
+    channel_width_MHz: float,
     nq: int = 0,
     beta: list[float] | None = None,
     sigma: float,
