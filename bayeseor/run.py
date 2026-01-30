@@ -113,14 +113,14 @@ def run(
             if not np.isfinite(post):
                 # rank kwarg deliberately omitted to print warning on all ranks
                 mpiprint(
-                    "WARNING: Infinite value returned in posterior calculation!",
+                    f"{rank}: WARNING: Infinite value returned in posterior calculation!",
                     style="bold red",
                     # rank=rank,
                 )
         # rank kwarg deliberately omitted to print evaluation time on all ranks
         avg_eval_time = (time.time() - start) / avg_iters
         mpiprint(
-            f"Average evaluation time: {avg_eval_time} s",
+            f"{rank}: Average evaluation time: {avg_eval_time} s",
             # rank=rank,
             end="\n\n",
         )
