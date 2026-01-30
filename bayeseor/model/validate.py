@@ -9,9 +9,10 @@ from pathlib import Path
 from rich import print as rprint
 from rich.panel import Panel
 
-from ..params import BayesEoRParser
-from .instrument import load_inst_model
 from .beam import Beam
+from .instrument import load_inst_model
+from .healpix import Healpix
+from ..params import BayesEoRParser
 from ..setup import get_vis_data
 from ..utils import mpiprint
 
@@ -55,6 +56,7 @@ def validate_model(
     redundant_avg : bool = False,
     uniform_redundancy : bool = False,
     inst_model : Path | str | None = None,
+    telescope_latlonalt : list[float] | None = None,
     plot : bool = True,
     verbose : bool = True,
     rank : int = 0
@@ -168,6 +170,7 @@ def validate_model(
         redundant_avg = args.redundant_avg
         uniform_redundancy = args.uniform_redundancy
         inst_model = args.inst_model
+        telescope_latlonalt = args.telescope_latlonalt
     else:
         required_kwargs = [
             neta, nu, nv, nu_fg, nv_fg, fit_for_monopole, nside,
@@ -176,7 +179,8 @@ def validate_model(
             Nsigma, data_path, ant_str, bl_cutoff, freq_idx_min,
             freq_min, freq_center, nf, df, nq, jd_idx_min,
             jd_min, jd_center, nt, dt, form_pI, pI_norm, pol,
-            redundant_avg, uniform_redundancy, inst_model
+            redundant_avg, uniform_redundancy, inst_model,
+            telescope_latlonalt
         ]
         missing_kwargs = [kwarg is None for kwarg in required_kwargs]
         required_kwargs = [
@@ -186,7 +190,8 @@ def validate_model(
             "Nsigma", "data_path", "ant_str", "bl_cutoff", "freq_idx_min",
             "freq_min", "freq_center", "nf", "df", "nq", "jd_idx_min",
             "jd_min", "jd_center", "nt", "dt", "form_pI", "pI_norm", "pol",
-            "redundant_avg", "uniform_redundancy", "inst_model"
+            "redundant_avg", "uniform_redundancy", "inst_model",
+            "telescope_latlonalt"
         ]
         if np.any(missing_kwargs):
             raise ValueError(
@@ -195,48 +200,51 @@ def validate_model(
                 f"The following parameters are missing: "
                 f"{', '.join(required_kwargs[missing_kwargs])}\n"
             )
+    if telescope_latlonalt is None:
+        raise ValueError("telescope_latlonalt is required and cannot be None")
 
     # print_rank will only trigger print if verbose is True and rank == 0
     print_rank = 1 - (verbose and rank == 0)
     if verbose and rank == 0:
         rprint("\n", Panel("Configuration"))
-        print(f"{neta               = }")
-        print(f"{nu                 = }")
-        print(f"{nv                 = }")
-        print(f"{nu_fg              = }")
-        print(f"{nv_fg              = }")
-        print(f"{fit_for_monopole   = }")
-        print(f"{nside              = }")
-        print(f"{fov_ra_eor         = }")
-        print(f"{fov_dec_eor        = }")
-        print(f"{fov_ra_fg          = }")
-        print(f"{fov_dec_fg         = }")
-        print(f"{simple_za_filter   = }")
-        print(f"{single_fov         = }")
-        print(f"{beam_type          = }")
-        print(f"{fwhm_deg           = }")
-        print(f"{diam               = }")
-        print(f"{Nsigma             = }")
-        print(f"{data_path          = }")
-        print(f"{ant_str            = }")
-        print(f"{bl_cutoff          = }")
-        print(f"{freq_idx_min       = }")
-        print(f"{freq_min           = }")
-        print(f"{freq_center        = }")
-        print(f"{nf                 = }")
-        print(f"{df                 = }")
-        print(f"{nq                 = }")
-        print(f"{jd_idx_min         = }")
-        print(f"{jd_min             = }")
-        print(f"{jd_center          = }")
-        print(f"{nt                 = }")
-        print(f"{dt                 = }")
-        print(f"{form_pI            = }")
-        print(f"{pI_norm            = }")
-        print(f"{pol                = }")
-        print(f"{redundant_avg      = }")
-        print(f"{uniform_redundancy = }")
-        print(f"{inst_model         = }")
+        print(f"{neta                = }")
+        print(f"{nu                  = }")
+        print(f"{nv                  = }")
+        print(f"{nu_fg               = }")
+        print(f"{nv_fg               = }")
+        print(f"{fit_for_monopole    = }")
+        print(f"{nside               = }")
+        print(f"{fov_ra_eor          = }")
+        print(f"{fov_dec_eor         = }")
+        print(f"{fov_ra_fg           = }")
+        print(f"{fov_dec_fg          = }")
+        print(f"{simple_za_filter    = }")
+        print(f"{single_fov          = }")
+        print(f"{beam_type           = }")
+        print(f"{fwhm_deg            = }")
+        print(f"{diam                = }")
+        print(f"{Nsigma              = }")
+        print(f"{data_path           = }")
+        print(f"{ant_str             = }")
+        print(f"{bl_cutoff           = }")
+        print(f"{freq_idx_min        = }")
+        print(f"{freq_min            = }")
+        print(f"{freq_center         = }")
+        print(f"{nf                  = }")
+        print(f"{df                  = }")
+        print(f"{nq                  = }")
+        print(f"{jd_idx_min          = }")
+        print(f"{jd_min              = }")
+        print(f"{jd_center           = }")
+        print(f"{nt                  = }")
+        print(f"{dt                  = }")
+        print(f"{form_pI             = }")
+        print(f"{pI_norm             = }")
+        print(f"{pol                 = }")
+        print(f"{redundant_avg       = }")
+        print(f"{uniform_redundancy  = }")
+        print(f"{inst_model          = }")
+        print(f"{telescope_latlonalt = }")
 
     data_path = Path(data_path)
     if data_path.suffix == ".npy":
@@ -320,6 +328,8 @@ def validate_model(
         nf = freqs.size
         jds = Time(vis_dict["jds"], format="jd")
         nt = jds.size
+        jd_center = jds[nt//2]
+        dt = (jds[1] - jds[0]).to("s")
         uvs_m = Quantity(vis_dict["uvws"][0, :, :2], unit="m")
 
     if neta is None:
@@ -346,7 +356,21 @@ def validate_model(
         fov_dec_fg = fov_ra_fg
     elif not isinstance(fov_dec_fg, Quantity):
         fov_dec_fg = Quantity(fov_dec_fg, unit="deg")
-    
+
+    hpx = Healpix(
+        fov_ra_eor=fov_ra_eor,
+        fov_dec_eor=fov_dec_eor,
+        fov_ra_fg=fov_ra_fg,
+        fov_dec_fg=fov_dec_fg,
+        simple_za_filter=simple_za_filter,
+        single_fov=single_fov,
+        nside=nside,
+        telescope_latlonalt=telescope_latlonalt,
+        jd_center=jd_center,
+        nt=nt,
+        dt=dt
+    )
+
     # Beam model params
     beam_type = beam_type.lower()
     if beam_type in ["gaussian", "airy"]:
@@ -521,7 +545,73 @@ def validate_model(
                 f"runtimes.",
                 rank=print_rank
             )
-    # TODO: add check for beam sweep angle relative to FoV along RA
+    # Check if any pointing centers lie outside the extent of the
+    # EoR or foreground sky model
+    ra_start = hpx.pointing_centers[0][0]
+    ra_end = hpx.pointing_centers[-1][0]
+    delta_ra = ra_end - ra_start
+    if delta_ra < 0:
+        delta_ra = ra_end + 360 - ra_start
+    bad_ptctrs_eor = np.zeros(hpx.nt, dtype=bool)
+    bad_ptctrs_fg = np.zeros(hpx.nt, dtype=bool)
+    for i_t in range(hpx.nt):
+        ra, dec = hpx.pointing_centers[i_t]
+        hpx_ind = ahp.lonlat_to_healpix(
+            ra*units.deg, dec*units.deg, hpx.nside
+        )
+        bad_ptctrs_eor[i_t] = hpx_ind not in hpx.pix_eor
+        bad_ptctrs_fg[i_t] = hpx_ind not in hpx.pix_fg
+    if verbose and rank == 0:
+        mpiprint(f"fov_ra_eor    ", end="")
+        mpiprint(f">{delta_ra:<12.2f}", end="")
+        if np.any(bad_ptctrs_eor):
+            style = "bold red"
+        else:
+            style = "green"
+        if single_fov:
+            mpiprint(f"{fov_ra_eor.value:.2f}", style=style)
+        else:
+            mpiprint(
+                f"{hpx.fov_ra_eor_eff.value:.2f} (fov_ra_eor_eff)",
+                style=style
+            )
+        mpiprint(f"fov_ra_fg     ", end="")
+        mpiprint(f">{delta_ra:<12.2f}", end="")
+        if np.any(bad_ptctrs_fg):
+            style = "bold red"
+        else:
+            style = "green"
+        if single_fov:
+            mpiprint(f"{fov_ra_fg.value:.2f}", style=style)
+        else:
+            mpiprint(
+                f"{hpx.fov_ra_fg_eff.value:.2f} (fov_ra_fg_eff)", style=style
+            )
+    if np.any(bad_ptctrs_eor):
+        bad_inds = list(np.where(bad_ptctrs_eor)[0])
+        mpiprint(
+            f"\n[bold red]WARNING:[/bold red] the following time indices "
+            f"produce pointing centers in the EoR sky model in (RA, Dec) "
+            f"that lie outside the included sky model pixels: {bad_inds}."
+            f"  Consider increasing fov_ra_eor, setting single_fov = True "
+            f"or selecting a dataset with a smaller integration time (dt) "
+            f"or fewer integrations (nt) to reduce the range of observed "
+            f"RA.",
+            rank=print_rank
+        )
+    if np.any(bad_ptctrs_fg):
+        bad_inds = list(np.where(bad_ptctrs_fg)[0])
+        mpiprint(
+            f"\n[bold red]WARNING:[/bold red] the following time indices "
+            f"produce pointing centers in the foreground sky model in (RA,"
+            f" Dec) that lie outside the included sky model pixels: "
+            f"{bad_inds}.  Consider increasing fov_ra_fg, setting "
+            f"single_fov = True or selecting a dataset with a smaller "
+            f"integration time (dt) or fewer integrations (nt) to reduce "
+            f"the range of observed RA.",
+            rank=print_rank
+        )
+    
     
     # Linear system conditioning
     nmodel = (
@@ -534,9 +624,14 @@ def validate_model(
     ndata = nf * nt * nbls
     if verbose and rank == 0:
         mpiprint("\n", Panel("Linear System Conditioning"))
-        mpiprint(f"nmodel:         {nmodel}")
-        mpiprint(f"ndata:          {ndata}")
-        mpiprint(f"ndata / nmodel: {ndata / nmodel}")
+        mpiprint(f"nmodel         = {nmodel}")
+        mpiprint(f"ndata          = {ndata}")
+        if ndata / nmodel < 2:
+            style = "bold red"
+        else:
+            style = "green"
+        mpiprint(f"ndata / nmodel = ", end="")
+        mpiprint(f"{ndata / nmodel}", style=style)
     if ndata / nmodel < 2:
         mpiprint(
             f"[bold]WARNING:[/bold] ndata / nmodel < 2 .  For some datasets, "
