@@ -1,8 +1,10 @@
-import numpy as np
 from pathlib import Path
 from sysconfig import get_paths
 
+import numpy as np
+
 from .utils import mpiprint
+
 
 class GPUInterface(object):
     """
@@ -19,6 +21,7 @@ class GPUInterface(object):
         If True (default), print status.
 
     """
+
     def __init__(self, base_dir=None, rank=0, verbose=True):
         if base_dir is None:
             # Look for MAGMA .so files in environment's lib directory
@@ -29,9 +32,10 @@ class GPUInterface(object):
         self.verbose = verbose
 
         try:
-            import pycuda.driver as cuda
-            import pycuda.autoinit
             import ctypes
+
+            import pycuda.autoinit
+            import pycuda.driver as cuda
             from numpy import ctypeslib
 
             so_path = self.base_dir / "libmagma.so"
@@ -39,7 +43,7 @@ class GPUInterface(object):
                 mpiprint(
                     f"Loading shared library from {so_path}",
                     rank=self.rank,
-                    end="\n\n"
+                    end="\n\n",
                 )
             # libmagma.so contains functions from the Matrix Algebra for
             # GPU and Multicore Architectures (MAGMA) library.  We use
@@ -66,10 +70,10 @@ class GPUInterface(object):
                 ctypes.c_int,
                 ctypeslib.ndpointer(np.complex128, ndim=2, flags="C"),
                 ctypes.c_int,
-                ctypeslib.ndpointer(int, ndim=1, flags="C")
+                ctypeslib.ndpointer(int, ndim=1, flags="C"),
             ]
             if self.verbose:
-                mpiprint(f"Computing on GPU(s)", rank=self.rank)
+                mpiprint("Computing on GPU(s)", rank=self.rank)
                 Ngpus = cuda.Device.count()
                 print(
                     f"Rank {self.rank}: {cuda.Device.count()} GPUs ("

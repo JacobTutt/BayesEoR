@@ -1,18 +1,21 @@
-""" Example driver script for running BayesEoR """
+"""Example driver script for running BayesEoR"""
+
 import os
+import sys
 from pathlib import Path
 from pprint import pprint
-from rich.panel import Panel
-import sys
 
+from rich.panel import Panel
+
+from bayeseor import __version__ as bayeseor_version
 from bayeseor.params import BayesEoRParser
 from bayeseor.run import run
 from bayeseor.setup import run_setup
-from bayeseor.utils import mpiprint, write_log_files
-from bayeseor import __version__ as bayeseor_version
+from bayeseor.utils import MultiNestPathManager, mpiprint, write_log_files
 
 if __name__ == "__main__":
     from mpi4py import MPI
+
     mpi_comm = MPI.COMM_WORLD
     rank = mpi_comm.Get_rank()
     mpi_size = mpi_comm.Get_size()
@@ -32,7 +35,7 @@ if rank == 0 and not args.quiet:
         mpiprint(
             f"\nConfig file: {Path(args.config[0]).absolute().as_posix()}",
             end="\n\n",
-            rank=rank
+            rank=rank,
         )
     pprint(args.__dict__)
 
@@ -54,20 +57,30 @@ else:
             f"\nERROR: GPU initialization failed on rank {rank}. Aborting.\n",
             style="bold red",
             justify="center",
-            rank=0
+            rank=0,
         )
         if mpi_comm is not None:
             mpi_comm.Abort(1)
         else:
             sys.exit()
-    
+
     if rank == 0:
         # Write log files containing analysis parameters
         # and git version info for posterity
         write_log_files(parser, args, out_dir=out_dir, verbose=(not args.quiet))
-    
+
     if args.use_Multinest:
         sampler = "multinest"
+
+        # ---
+        # Workaround MultiNest's 100-character path limitation
+        # by creating a temporary symbolic link to output_dir with
+        # a shorter path that is passed to MultiNest.
+        # Use MultiNestPathManager to manage the short path
+        path_manager = MultiNestPathManager(out_dir, rank, mpi_comm=mpi_comm)
+        out_dir = path_manager.setup_multinest_path()
+        # ---
+
     else:
         sampler = "polychord"
 
@@ -78,5 +91,15 @@ else:
         calc_avg_eval=True,
         out_dir=out_dir,
         sampler=sampler,
-        rank=rank
+        rank=rank,
     )
+
+    # Clean up temporary short path if using MultiNest
+    if args.use_Multinest:
+        # Ensure all ranks have finished MultiNest + PyMultiNest post-processing
+        # before rank 0 unlinks the temporary short path.
+        if mpi_comm is not None:
+            mpi_comm.Barrier()
+
+        # Cleanup symlinks after sampling
+        path_manager.cleanup()

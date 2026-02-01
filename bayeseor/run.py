@@ -1,22 +1,24 @@
-import numpy as np
+import time
 from collections.abc import Sequence
 from pathlib import Path
-from pymultinest.solve import solve
-import time
 
-from .posterior import PriorC, PowerSpectrumPosteriorProbability
+import numpy as np
+from pymultinest.solve import solve
+
+from .posterior import PowerSpectrumPosteriorProbability, PriorC
 from .utils import mpiprint
+
 
 def run(
     *,
-    pspp : PowerSpectrumPosteriorProbability,
-    priors : Sequence[float],
-    n_live_points : int | None = None,
-    calc_avg_eval : bool = False,
-    avg_iters : int = 10,
-    out_dir : Path | str = "./",
-    sampler : str = "multinest",
-    rank : int = 0
+    pspp: PowerSpectrumPosteriorProbability,
+    priors: Sequence[float],
+    n_live_points: int | None = None,
+    calc_avg_eval: bool = False,
+    avg_iters: int = 10,
+    out_dir: Path | str = "./",
+    sampler: str = "multinest",
+    rank: int = 0,
 ):
     """
     Run a power spectrum analysis.
@@ -59,10 +61,26 @@ def run(
 
     sampler = sampler.lower()
     if sampler == "multinest":
-        assert len(out_dir.as_posix()) <= 100, (
-            "When using MultiNest, the path to the sampler output directory "
-            "`out_dir` must be <= 100 characters in length"
+        # The longest file name created by MultiNest is:
+        # <file-root-dir><file-root>post_equal_weights.dat
+        # which is 22 characters longer than <file-root-dir><file-root>.
+        # Assuming the file-root is "data-", which is currently hard-coded above,
+        # this means the maximum allowed out_dir path length is
+        # max_path_length = 100 - 22 - 5 = 73 characters.
+        # Check that the output directory path length is <= max_path_length characters
+        # ---
+        # Possible upgrade (JB): check MultiNest for the output file names
+        # to calculate max_path_length directly from pymultinest.
+        # ---
+        max_path_length = 73
+        assert len(out_dir.as_posix()) <= max_path_length, (
+            "When using MultiNest, the full file path must be <= 100 characters in \n"
+            "length.\n Using the default `data-` file prefix, the path to the sampler\n"
+            f"directory output `out_dir` must be <= {max_path_length} characters in \n"
+            "length. Either <file-root-dir> must be shortened or the MultiNest file \n"
+            "prefix must be changed from `data-` to a shorter string."
         )
+
         # Log-likelihood wrapper function for MultiNest
         def loglikelihood(theta, calc_likelihood=pspp.posterior_probability):
             return calc_likelihood(theta)[0]
@@ -84,7 +102,8 @@ def run(
         # a finite value for the posterior probability
         mpiprint(
             "\nCalculating average posterior probability evaulation time:",
-            style="bold"
+            style="bold",
+            rank=rank,
         )
         start = time.time()
         pspp_verbose = pspp.verbose
@@ -92,16 +111,18 @@ def run(
         for _ in range(avg_iters):
             post = pspp.posterior_probability(np.array(priors).mean(axis=1))[0]
             if not np.isfinite(post):
+                # rank kwarg deliberately omitted to print warning on all ranks
                 mpiprint(
-                    "WARNING: Infinite value returned in posterior calculation!",
+                    f"{rank}: WARNING: Infinite value returned in posterior calculation!",
                     style="bold red",
-                    rank=rank
+                    # rank=rank,
                 )
+        # rank kwarg deliberately omitted to print evaluation time on all ranks
         avg_eval_time = (time.time() - start) / avg_iters
         mpiprint(
-            f"Average evaluation time: {avg_eval_time} s",
-            rank=rank,
-            end="\n\n"
+            f"{rank}: Average evaluation time: {avg_eval_time} s",
+            # rank=rank,
+            end="\n\n",
         )
 
     if sampler == "multinest":
@@ -110,6 +131,6 @@ def run(
             Prior=prior_c.prior_func,
             n_dims=nkbins,
             outputfiles_basename=sampler_output_base,
-            n_live_points=n_live_points
+            n_live_points=n_live_points,
         )
     mpiprint("\nSampling complete!", rank=rank, end="\n\n")
