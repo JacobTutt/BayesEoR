@@ -535,7 +535,7 @@ class Healpix(HEALPix):
                 az_array=az, za_array=za, freq_array=np.array([freq]),
                 reuse_spline=True
             )
-            beam_vals = beam_vals[0, 0, 0, 0].real
+            beam_vals = beam_vals[0, 0, 0].real
 
         return beam_vals
 
