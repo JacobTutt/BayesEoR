@@ -216,6 +216,11 @@ class Healpix(HEALPix):
                 elif uvb.beam_type == "efield" and pol == "pI":
                     uvb.efield_to_pstokes()
                 uvb.select(polarizations=[uvutils.polstr2num(pol)])
+                # For now, fix beam normalization to match the pyuvsim
+                # convention.  This choice may need to be reassessed in
+                # the future when analyzing data from other simulators
+                # and real data.
+                uvb.peak_normalize()
                 uvb.freq_interp_kind = freq_interp_kind
                 if uvb.pixel_coordinate_system == "healpix":
                     uvb.interpolation_function = "healpix_simple"
