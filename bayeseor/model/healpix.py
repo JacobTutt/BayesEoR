@@ -85,8 +85,8 @@ class Healpix(HEALPix):
         of magnitude.  Used if `beam_type` is 'tanhairy'.
     pol : str, optional
         Polarization string.  Can be 'xx', 'yy', or 'pI'.  Only used if
-        `beam_type` is a path to a pyuvdata-compatible beam file.  Defaults to
-        'xx'.
+        `beam_type` is a path to a pyuvdata-compatible beamfits file. Defaults
+        to None.
     freq_interp_kind : str, optional
         Frequency interpolation kind. Please see `scipy.interpolate.interp1d`
         for valid options and more details.  Defaults to 'cubic'.
@@ -111,9 +111,15 @@ class Healpix(HEALPix):
         cosfreq=None,
         tanh_freq=None,
         tanh_sl_red=None,
-        pol="xx",
+        pol=None,
         freq_interp_kind="cubic"
     ):
+        if "." in beam_type and pol is None:
+            raise ValueError(
+                "If beam_type points to a pyuvdata-compatible beamfits file, "
+                "pol must not be None"
+            )
+
         # Use HEALPix as parent class to get useful astropy_healpix functions
         super().__init__(nside, frame=ICRS())
 
@@ -208,7 +214,7 @@ class Healpix(HEALPix):
                 self.beam_type = beam_type
                 self.uvb = None
             else:
-                # assume beam_type is a path to a UVBeam compatible file
+                # Assume beam_type is a path to a UVBeam compatible file
                 uvb = UVBeam()
                 uvb.read_beamfits(beam_type)
                 if uvb.beam_type == "efield" and pol in ["xx", "yy"]:

@@ -26,7 +26,7 @@ def preprocess_uvdata(
     Ntimes=None,
     form_pI=True,
     pI_norm=1.0,
-    pol="xx",
+    pol=None,
     redundant_avg=False,
     uniform_redundancy=False,
     phase=False,
@@ -110,8 +110,9 @@ def preprocess_uvdata(
         Normalization, ``N``, used in forming pseudo-Stokes I from XX and YY
         via ``pI = N * (XX + YY)``. Defaults to 1.0.
     pol : str, optional
-        Case-insensitive polarization string. Used only if `form_pI` is False.
-        Defaults to 'xx'.
+        Polarization string. Can be one of 'xx', 'yy', or 'pI' for XX, YY or
+        pseudo-Stokes I polarization, respectively. Used only if `form_pI` is
+        False. Defaults to None.
     redundant_avg : bool, optional
         Redundantly average the data.  Defaults to False.
     uniform_redundancy : bool, optional
@@ -171,6 +172,9 @@ def preprocess_uvdata(
         Preprocessed UVData object.  Returned only if `return_uvd` is True.
 
     """
+    if not form_pI and pol is None:
+        raise ValueError("If form_pI is False, pol must not be None")
+
     if not isinstance(fp, Path):
         fp = Path(fp)
     if not fp.exists():
@@ -616,7 +620,7 @@ def uvd_to_vector(
         List of antenna pair tuples. Determines the baseline ordering in
         the data vector.
     pol : str, optional
-        Case-insensitive polarization string. Defaults to 'xx'.
+        Polarization string. Defaults to 'xx'.
     phase : bool, optional
         Create a "phasor vector" which is created identically to the data
         vector which can be used to phase each visibility as a function of

@@ -145,6 +145,11 @@ class BuildMatrices():
     beam_type : string
         Beam type to use.  Can be 'uniform', 'gaussian', 'airy', 'taperairy',
         or 'gausscosine'. Defaults to None.
+    pol : str, optional
+        Polarization string. Can be one of 'xx', 'yy', or 'pI' for XX, YY, or
+        pseudo-Stokes I polarization, respectively. Only required if
+        `beam_type` points to a pyuvdata-compatible beamfits file. Defaults to
+        None.
     beam_center : tuple of floats
         Beam center in (RA, DEC) coordinates and units of degrees.  Assumed to
         be an tuple of offsets along the RA and DEC axes relative to the
@@ -249,6 +254,7 @@ class BuildMatrices():
         jd_center=None,
         dt=None,
         beam_type=None,
+        pol=None,
         beam_center=None,
         achromatic_beam=False,
         beam_peak_amplitude=1,
@@ -314,6 +320,7 @@ class BuildMatrices():
             self.jd_center = jd_center
             self.telescope_latlonalt = telescope_latlonalt
             self.beam_type = beam_type
+            self.pol = pol
             self.beam_peak_amplitude = beam_peak_amplitude
             self.beam_center = beam_center
             self.fwhm_deg = fwhm_deg
@@ -338,7 +345,8 @@ class BuildMatrices():
                 peak_amp=self.beam_peak_amplitude,
                 fwhm_deg=self.fwhm_deg,
                 diam=self.antenna_diameter,
-                cosfreq=self.cosfreq
+                cosfreq=self.cosfreq,
+                pol=self.pol
             )
 
             self.drift_scan = drift_scan

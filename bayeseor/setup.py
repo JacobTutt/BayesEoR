@@ -77,7 +77,7 @@ def run_setup(
     dt: Quantity | float | None = None,
     form_pI: bool = True,
     pI_norm: float = 1.0,
-    pol: str = "xx",
+    pol: str | None = None,
     redundant_avg: bool = False,
     uniform_redundancy: bool = False,
     phase: bool = False,
@@ -294,10 +294,11 @@ def run_setup(
         pyuvdata-compatible visibility file and `form_pI` is True. Defaults to
         1.0.
     pol : str, optional
-        Case-insensitive polarization string. Can be one of 'xx', 'yy', or 'pI'
-        for XX, YY, or pseudo-Stokes I polarization, respectively. Used only if
-        `data_path` points to a pyuvdata-compatible visibility file and
-        `form_pI` is False. Defaults to 'xx'.
+        Polarization string. Can be one of 'xx', 'yy', or 'pI' for XX, YY, or
+        pseudo-Stokes I polarization, respectively. Used only if `data_path`
+        points to a pyuvdata-compatible visibility file or if `beam_type`
+        points to a pyuvdata-compatible beamfits file and `form_pI` is False.
+        Defaults to None.
     redundant_avg : bool, optional
         Redundantly average the data. Used only if `data_path` points to a
         pyuvdata-compatible visibility file. Defaults to False.
@@ -516,6 +517,17 @@ def run_setup(
             "telescope_latlonalt cannot be None if include_instrumental_effects is true"
         )
 
+    if not Path(data_path).suffix == ".npy" and pol is None:
+        raise ValueError(
+            "If data_path points to a pyuvdata-compatible visibility file, "
+            "pol must not be None"
+        )
+    if "." in beam_type and pol is None:
+        raise ValueError(
+            "If beam_type points to a pyuvdata-compatible beamfits file, "
+            "pol must not be None"
+        )
+    
     # print_rank will only trigger print if verbose is True and rank == 0
     print_rank = 1 - (verbose and rank == 0)
 
@@ -531,7 +543,7 @@ def run_setup(
         # like nf or nt get potentially overwritten after processing
         # the data vector.
         vis_args = dict(
-            fp=data_path.as_posix(),
+            fp=Path(data_path).as_posix(),
             ant_str=ant_str,
             bl_cutoff=bl_cutoff,
             freq_min=freq_min,
@@ -1098,7 +1110,7 @@ def get_vis_data(
     dt: Quantity | float | None = None,
     form_pI: bool = True,
     pI_norm: float = 1.0,
-    pol: str = "xx",
+    pol: str | None = None,
     redundant_avg: bool = False,
     uniform_redundancy: bool = False,
     phase: bool = False,
@@ -1194,10 +1206,10 @@ def get_vis_data(
         pyuvdata-compatible visibility file and `form_pI` is True. Defaults to
         1.0.
     pol : str, optional
-        Case-insensitive polarization string. Can be one of 'xx', 'yy', or 'pI'
-        for XX, YY, or pseudo-Stokes I polarization, respectively. Used only if
-        `data_path` points to a pyuvdata-compatible visibility file and
-        `form_pI` is False. Defaults to 'xx'.
+        Polarization string. Can be one of 'xx', 'yy', or 'pI' for XX, YY, or
+        pseudo-Stokes I polarization, respectively. Used only if `data_path`
+        points to a pyuvdata-compatible visibility file and `form_pI` is False.
+        Defaults to None.
     redundant_avg : bool, optional
         Redundantly average the data. Used only if `data_path` points to a
         pyuvdata-compatible visibility file. Defaults to False.
@@ -1309,6 +1321,11 @@ def get_vis_data(
             data_path = Path(data_path)
         if not data_path.exists():
             raise FileNotFoundError(f"{data_path} does not exist")
+        if data_path.suffix != ".npy" and pol is None:
+            raise ValueError(
+                "If data_path points to a pyuvdata-compatible visibility file,"
+                " pol must not be None"
+            )
         if data_path.suffix == ".npy":
             required_freq = np.all(
                 [
@@ -1626,6 +1643,7 @@ def generate_array_dir(
     dt: float | None = None,
     drift_scan: bool = True,
     beam_type: str | None = None,
+    pol: str | None = None,
     beam_center: list[float] | None = None,
     achromatic_beam: bool = False,
     beam_peak_amplitude: float | None = 1.0,
@@ -1720,6 +1738,11 @@ def generate_array_dir(
         Path to a pyuvdata-compatible beam file or one of 'uniform',
         'gaussian', 'airy', 'gausscosine', or 'taperairy'. Used only if
         `include_instrumental_effects` is True. Defaults to None.
+    pol : str, optional
+        Polarization string. Can be one of 'xx', 'yy', or 'pI' for XX, YY, or
+        pseudo-Stokes I polarization, respectively. Only required if
+        `beam_type` points to a pyuvdata-compatible beamfits file. Defaults to
+        None.
     beam_center : list of float, optional
         Beam center offsets from the phase center in right ascension and
         declination in degrees. Used only if `include_instrumental_effects` is
@@ -1766,6 +1789,12 @@ def generate_array_dir(
         model parameters and the instrument model.
 
     """
+    if "." in beam_type and pol is None:
+        raise ValueError(
+            "If beam_type points to a pyuvdata-compatible beamfits file, "
+            "pol must not be None"
+        )
+
     if array_dir_prefix is not None:
         if not isinstance(array_dir_prefix, Path):
             array_dir_prefix = Path(array_dir_prefix)
@@ -1868,6 +1897,9 @@ def generate_array_dir(
             )
             beam_str += f"-{beam_center_str}"
 
+        if pol is not None:
+            beam_str += f"-{pol}"
+
         matrices_path /= f"{beam_str}"
 
     noise_str = f"sigma{sigma:.2e}"
@@ -1919,6 +1951,7 @@ def build_matrices(
     jd_center: float,
     dt: float,
     beam_type: str,
+    pol: str | None = None,
     beam_center: list[float] | None = None,
     achromatic_beam: bool = False,
     beam_peak_amplitude: float = 1.0,
@@ -2042,6 +2075,11 @@ def build_matrices(
         Path to a pyuvdata-compatible beam file or one of 'uniform',
         'gaussian', 'airy', 'gausscosine', or 'taperairy'. Used only if
         `include_instrumental_effects` is True. Defaults to None.
+    pol : str, optional
+        Polarization string. Can be one of 'xx', 'yy', or 'pI' for XX, YY, or
+        pseudo-Stokes I polarization, respectively. Only required if
+        `beam_type` points to a pyuvdata-compatible beamfits file. Defaults to
+        None.
     beam_center : list of float, optional
         Beam center offsets from the phase center in right ascension and
         declination in degrees. Used only if `include_instrumental_effects`
@@ -2130,6 +2168,11 @@ def build_matrices(
         raise ValueError(
             "telescope_latlonalt cannot be None if include_instrumental_effects is true"
         )
+    if "." in beam_type and pol is None:
+        raise ValueError(
+            "If beam_type points to a pyuvdata-compatible beamfits file, "
+            "pol must not be None"
+        )
 
     # print_rank will only trigger print if verbose is True and rank == 0
     print_rank = 1 - (verbose and rank == 0)
@@ -2176,6 +2219,7 @@ def build_matrices(
         nt=nt,
         dt=dt,
         beam_type=beam_type,
+        pol=pol,
         beam_center=beam_center,
         drift_scan=drift_scan,
         taper_func=taper_func,
@@ -2245,6 +2289,7 @@ def build_matrices(
         jd_center=jd_center,
         dt=dt,
         beam_type=beam_type,
+        pol=pol,
         beam_center=beam_center,
         achromatic_beam=achromatic_beam,
         beam_peak_amplitude=beam_peak_amplitude,
