@@ -87,6 +87,12 @@ class Healpix(HEALPix):
         Polarization string.  Can be 'xx', 'yy', or 'pI'.  Only used if
         `beam_type` is a path to a pyuvdata-compatible beamfits file. Defaults
         to None.
+    uvbeam_norm : str, optional
+        pyuvdata.UVBeam normalization string. Can be one of 'physical', 'peak',
+        or 'solid_angle'. Please refer to the pyuvdata documentation for more
+        details: https://pyuvdata.readthedocs.io/en/latest/uvbeam.html. Only
+        required if `beam_type` points to a pyuvdata-compatible beam file.
+        Defaults to None.
     freq_interp_kind : str, optional
         Frequency interpolation kind. Please see `scipy.interpolate.interp1d`
         for valid options and more details.  Defaults to 'cubic'.
@@ -112,12 +118,13 @@ class Healpix(HEALPix):
         tanh_freq=None,
         tanh_sl_red=None,
         pol=None,
+        uvbeam_norm=None,
         freq_interp_kind="cubic"
     ):
-        if "." in beam_type and pol is None:
+        if "." in beam_type and pol is None or uvbeam_norm is None:
             raise ValueError(
                 "If beam_type points to a pyuvdata-compatible beamfits file, "
-                "pol must not be None"
+                "both pol and uvbeam_norm must not be None"
             )
 
         # Use HEALPix as parent class to get useful astropy_healpix functions
@@ -222,11 +229,18 @@ class Healpix(HEALPix):
                 elif uvb.beam_type == "efield" and pol == "pI":
                     uvb.efield_to_pstokes()
                 uvb.select(polarizations=[uvutils.polstr2num(pol)])
-                # For now, fix beam normalization to match the pyuvsim
-                # convention.  This choice may need to be reassessed in
-                # the future when analyzing data from other simulators
-                # and real data.
-                uvb.peak_normalize()
+                if uvbeam_norm.lower() == "peak":
+                    # This call to peak_normalize could fail if the input
+                    # UVBeam file is in 'solid_angle' normalization, but we
+                    # will leave it to pyuvdata to raise a NotImplementedError
+                    # instead of adding it here in case it gets implemented
+                    # in the future.
+                    uvb.peak_normalize()
+                elif uvbeam_norm.lower() != uvb.data_normalization:
+                    raise NotImplementedError(
+                        f"Conversion from {uvb.data_normalization} to "
+                        f" {uvbeam_norm.lower()} is not currently supported"
+                    )
                 uvb.freq_interp_kind = freq_interp_kind
                 if uvb.pixel_coordinate_system == "healpix":
                     uvb.interpolation_function = "healpix_simple"

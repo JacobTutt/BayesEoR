@@ -64,6 +64,7 @@ def run_setup(
     antenna_diameter: float | None = None,
     cosfreq: float | None = None,
     beam_ref_freq: float | None = None,
+    uvbeam_norm: str | None = "peak",
     data_path: Path | str,
     ant_str: str = "cross",
     bl_cutoff: Quantity | float | None = None,
@@ -226,6 +227,12 @@ def run_setup(
     beam_ref_freq : float, optional
         Beam reference frequency in hertz. Used only if
         `include_instrumental_effects` is True. Defaults to `freq_min`.
+    uvbeam_norm : str, optional
+        pyuvdata.UVBeam normalization string. Can be one of 'physical', 'peak',
+        or 'solid_angle'. Please refer to the pyuvdata documentation for more
+        details: https://pyuvdata.readthedocs.io/en/latest/uvbeam.html. Only
+        required if `beam_type` points to a pyuvdata-compatible beam file.
+        Defaults to 'peak'.
     data_path : pathlib.Path or str
         Path to either a pyuvdata-compatible visibility file or a preprocessed
         numpy-compatible visibility vector in units of mK sr.
@@ -297,7 +304,7 @@ def run_setup(
         Polarization string. Can be one of 'xx', 'yy', or 'pI' for XX, YY, or
         pseudo-Stokes I polarization, respectively. Used only if `data_path`
         points to a pyuvdata-compatible visibility file or if `beam_type`
-        points to a pyuvdata-compatible beamfits file and `form_pI` is False.
+        points to a pyuvdata-compatible beam file and `form_pI` is False.
         Defaults to None.
     redundant_avg : bool, optional
         Redundantly average the data. Used only if `data_path` points to a
@@ -522,11 +529,12 @@ def run_setup(
             "If data_path points to a pyuvdata-compatible visibility file, "
             "pol must not be None"
         )
-    if "." in beam_type and pol is None:
-        raise ValueError(
-            "If beam_type points to a pyuvdata-compatible beamfits file, "
-            "pol must not be None"
-        )
+    if "." in beam_type and pol is None or uvbeam_norm is None:
+        if pol is None:
+            raise ValueError(
+                "If beam_type points to a pyuvdata-compatible beam file, "
+                "both pol and uvbeam_norm must not be None"
+            )
     
     # print_rank will only trigger print if verbose is True and rank == 0
     print_rank = 1 - (verbose and rank == 0)
@@ -850,6 +858,7 @@ def run_setup(
         antenna_diameter=antenna_diameter,
         cosfreq=cosfreq,
         beam_ref_freq=beam_ref_freq,
+        uvbeam_norm=uvbeam_norm,
         drift_scan=drift_scan,
         taper_func=taper_func,
         include_instrumental_effects=include_instrumental_effects,
@@ -1651,6 +1660,7 @@ def generate_array_dir(
     antenna_diameter: float | None = None,
     cosfreq: float | None = None,
     beam_ref_freq: float | None = None,
+    uvbeam_norm: str | None = None,
     noise_data_path: Path | str | None = None,
     taper_func: str | None = None,
     array_dir_prefix: Path | str = Path("./matrices/"),
@@ -1741,7 +1751,7 @@ def generate_array_dir(
     pol : str, optional
         Polarization string. Can be one of 'xx', 'yy', or 'pI' for XX, YY, or
         pseudo-Stokes I polarization, respectively. Only required if
-        `beam_type` points to a pyuvdata-compatible beamfits file. Defaults to
+        `beam_type` points to a pyuvdata-compatible beam file. Defaults to
         None.
     beam_center : list of float, optional
         Beam center offsets from the phase center in right ascension and
@@ -1768,6 +1778,12 @@ def generate_array_dir(
     beam_ref_freq : float, optional
         Beam reference frequency in megahertz. Used only if
         `include_instrumental_effects` is True. Defaults to None.
+    uvbeam_norm : str, optional
+        pyuvdata.UVBeam normalization string. Can be one of 'physical', 'peak',
+        or 'solid_angle'. Please refer to the pyuvdata documentation for more
+        details: https://pyuvdata.readthedocs.io/en/latest/uvbeam.html. Only
+        required if `beam_type` points to a pyuvdata-compatible beam file.
+        Defaults to None.
     noise_data_path : pathlib.Path or str, optional
         Path to a preprocessed numpy-compatible noise visibility vector in
         units of mK sr. Defaults to None.
@@ -1789,11 +1805,12 @@ def generate_array_dir(
         model parameters and the instrument model.
 
     """
-    if "." in beam_type and pol is None:
-        raise ValueError(
-            "If beam_type points to a pyuvdata-compatible beamfits file, "
-            "pol must not be None"
-        )
+    if "." in beam_type and pol is None or uvbeam_norm is None:
+        if pol is None:
+            raise ValueError(
+                "If beam_type points to a pyuvdata-compatible beam file, "
+                "both pol and uvbeam_norm must not be None"
+            )
 
     if array_dir_prefix is not None:
         if not isinstance(array_dir_prefix, Path):
@@ -1884,6 +1901,11 @@ def generate_array_dir(
                 beam_str += f"-fref{beam_ref_freq:.2f}MHz"
         else:
             beam_str = Path(beam_type).stem
+            beam_str += f"-{uvbeam_norm}"
+            # If we ever support analytic beams which are not azimuthally
+            # symmetric, we might need to move the polarization outside of
+            # this if/else block.
+            beam_str += f"-{pol}"
 
         if beam_center is not None:
             beam_center_signs = [
@@ -1896,9 +1918,6 @@ def generate_array_dir(
                 beam_center[1],
             )
             beam_str += f"-{beam_center_str}"
-
-        if pol is not None:
-            beam_str += f"-{pol}"
 
         matrices_path /= f"{beam_str}"
 
@@ -1959,6 +1978,7 @@ def build_matrices(
     antenna_diameter: float | None = None,
     cosfreq: float | None = None,
     beam_ref_freq: float | None = None,
+    uvbeam_norm: str | None = None,
     drift_scan: bool = True,
     telescope_name: str = "",
     uvws: np.ndarray,
@@ -2078,7 +2098,7 @@ def build_matrices(
     pol : str, optional
         Polarization string. Can be one of 'xx', 'yy', or 'pI' for XX, YY, or
         pseudo-Stokes I polarization, respectively. Only required if
-        `beam_type` points to a pyuvdata-compatible beamfits file. Defaults to
+        `beam_type` points to a pyuvdata-compatible beam file. Defaults to
         None.
     beam_center : list of float, optional
         Beam center offsets from the phase center in right ascension and
@@ -2105,6 +2125,12 @@ def build_matrices(
     beam_ref_freq : float, optional
         Beam reference frequency in megahertz. Used only if
         `include_instrumental_effects` is True. Defaults to None.
+    uvbeam_norm : str, optional
+        pyuvdata.UVBeam normalization string. Can be one of 'physical', 'peak',
+        or 'solid_angle'. Please refer to the pyuvdata documentation for more
+        details: https://pyuvdata.readthedocs.io/en/latest/uvbeam.html. Only
+        required if `beam_type` points to a pyuvdata-compatible beam file.
+        Defaults to None.
     drift_scan : bool, optional
         Model drift scan (True, default) or phased (False) visibilities.
     telescope_name : str, optional
@@ -2160,7 +2186,7 @@ def build_matrices(
     if noise is not None:
         warnings.warn(
             "There is a known issue when `noise` is not None (please see "
-            "BayesEoR issue #55 for more details.  For now, `noise` will "
+            "BayesEoR issue #55 for more details).  For now, `noise` will "
             "be forced to None."
         )
         noise = None
@@ -2168,10 +2194,10 @@ def build_matrices(
         raise ValueError(
             "telescope_latlonalt cannot be None if include_instrumental_effects is true"
         )
-    if "." in beam_type and pol is None:
+    if "." in beam_type and pol is None or uvbeam_norm is None:
         raise ValueError(
-            "If beam_type points to a pyuvdata-compatible beamfits file, "
-            "pol must not be None"
+            "If beam_type points to a pyuvdata-compatible beam file, "
+            "both pol and uvbeam_norm must not be None"
         )
 
     # print_rank will only trigger print if verbose is True and rank == 0
@@ -2230,6 +2256,7 @@ def build_matrices(
         antenna_diameter=antenna_diameter,
         cosfreq=cosfreq,
         beam_ref_freq=beam_ref_freq,
+        uvbeam_norm=uvbeam_norm,
         noise_data_path=noise_data_path,
         array_dir_prefix=array_dir_prefix,
         mkdir=mkdir,
@@ -2297,6 +2324,7 @@ def build_matrices(
         antenna_diameter=antenna_diameter,
         cosfreq=cosfreq,
         beam_ref_freq=beam_ref_freq,
+        uvbeam_norm=uvbeam_norm,
         drift_scan=drift_scan,
         uvw_array_m=uvws,
         bl_red_array=redundancy,

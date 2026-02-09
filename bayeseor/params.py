@@ -298,6 +298,11 @@ class BayesEoRParser(ArgumentParser):
         Default behavior is the beam center aligns with the phase center.
         Passed as a list of floats, e.g. '[-1.3,0.01]'. Do not include a space
         after the comma. Defaults to None.
+    uvbeam_norm : str, optional
+        pyuvdata.UVBeam normalization string. Can be one of 'physical', 'peak',
+        or 'solid_angle'. Please refer to the pyuvdata documentation for more
+        details: https://pyuvdata.readthedocs.io/en/latest/uvbeam.html.
+        Defaults to 'peak'.
 
     Subharmonic Grid Parameters
 
@@ -837,6 +842,14 @@ class BayesEoRParser(ArgumentParser):
             "Default behavior is the beam center aligns with the phase center. "
             "Passed as a list of floats, e.g. '[-1.3,0.01]'. Do not include a space "
             "after the comma.",
+        )
+        self.add_argument(
+            "--uvbeam-norm",
+            type=str,
+            default="peak",
+            help="pyuvdata.UVBeam normalization string. Can be one of 'physical', 'peak', "
+            "or 'solid_angle'. Please refer to the pyuvdata documentation for more "
+            "details: https://pyuvdata.readthedocs.io/en/latest/uvbeam.html."
         )
 
         # Subharmonic Grid Parameters

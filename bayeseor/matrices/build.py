@@ -175,6 +175,12 @@ class BuildMatrices():
     beam_ref_freq : float, optional
         Beam reference frequency in megahertz.  Used to fix the beam to be
         achromatic. Defaults to None.
+    uvbeam_norm : str, optional
+        pyuvdata.UVBeam normalization string. Can be one of 'physical', 'peak',
+        or 'solid_angle'. Please refer to the pyuvdata documentation for more
+        details: https://pyuvdata.readthedocs.io/en/latest/uvbeam.html. Only
+        required if `beam_type` points to a pyuvdata-compatible beam file.
+        Defaults to None.
     drift_scan : bool, optional
         If True, model a drift scan primary beam, i.e. the beam center drifts
         across the image space model with time. Defaults to True.
@@ -262,6 +268,7 @@ class BuildMatrices():
         antenna_diameter=None,
         cosfreq=None,
         beam_ref_freq=None,
+        uvbeam_norm=None,
         drift_scan=True,
         uvw_array_m=None,
         bl_red_array=None,
@@ -297,6 +304,12 @@ class BuildMatrices():
         self.verbose = verbose
 
         if self.include_instrumental_effects:
+            if "." in beam_type and pol is None or uvbeam_norm is None:
+                raise ValueError(
+                    "If beam_type points to a pyuvdata-compatible beam file, "
+                    "both pol and uvbeam_norm must not be None"
+                )
+
             self.uvw_array_m = uvw_array_m
             self.nbls = uvw_array_m.shape[1]
             self.bl_red_array = bl_red_array
@@ -328,6 +341,7 @@ class BuildMatrices():
             self.cosfreq = cosfreq
             self.achromatic_beam = achromatic_beam
             self.beam_ref_freq = beam_ref_freq
+            self.uvbeam_norm = uvbeam_norm
             self.effective_noise = effective_noise
 
             self.hpx = Healpix(
@@ -346,7 +360,8 @@ class BuildMatrices():
                 fwhm_deg=self.fwhm_deg,
                 diam=self.antenna_diameter,
                 cosfreq=self.cosfreq,
-                pol=self.pol
+                pol=self.pol,
+                uvbeam_norm=self.uvbeam_norm,
             )
 
             self.drift_scan = drift_scan
