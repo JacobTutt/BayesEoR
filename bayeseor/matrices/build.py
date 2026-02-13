@@ -1792,7 +1792,8 @@ class BuildMatrices():
             self.nv_fg,
             du=self.du_fg,
             dv=self.dv_fg,
-            exclude_mean=(not self.fit_for_monopole)
+            exclude_mean=(not self.fit_for_monopole),
+            move_mean_to_end=self.fit_for_monopole
         )
         model_uv_fg_irad = np.vstack((model_us_fg_irad, model_vs_fg_irad))
         nuidft_uv_to_lm_fg = build_nudft_array(
@@ -1808,14 +1809,6 @@ class BuildMatrices():
         nuidft_uv_to_lm_fg *= (
             self.Fprime_normalization_fg / (self.nu_fg * self.nv_fg)
         )
-        # Move the (u, v) = (0, 0) pixel to the rightmost column in
-        # nuidft_uv_to_lm_fg so that the LSSM components are all clustered
-        # together in the model vector (recall that (u, v) = (0, 0) acts
-        # like the constant term in the LSSM).
-        mp_column = nuidft_uv_to_lm_fg[:, nuv_fg//2].copy()
-        mp_ind = nuv_fg//2
-        nuidft_uv_to_lm_fg[:, mp_ind:-1] = nuidft_uv_to_lm_fg[:, mp_ind+1:]
-        nuidft_uv_to_lm_fg[:, -1] = mp_column
 
         # FIXME: add support for the SHG uv-plane (issue #50)
         # if self.use_shg:
