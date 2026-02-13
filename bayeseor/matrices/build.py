@@ -1792,8 +1792,7 @@ class BuildMatrices():
             self.nv_fg,
             du=self.du_fg,
             dv=self.dv_fg,
-            exclude_mean=(not self.fit_for_monopole),
-            move_mean_to_end=self.fit_for_monopole
+            exclude_mean=(not self.fit_for_monopole)
         )
         model_uv_fg_irad = np.vstack((model_us_fg_irad, model_vs_fg_irad))
         nuidft_uv_to_lm_fg = build_nudft_array(

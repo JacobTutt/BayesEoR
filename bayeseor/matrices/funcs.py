@@ -10,8 +10,7 @@ from scipy import sparse
 
 
 # FT array coordinate functions
-def sampled_uv_vectors(
-        nu, nv, du=1.0, dv=1.0, exclude_mean=True, move_mean_to_end=False):
+def sampled_uv_vectors(nu, nv, du=1.0, dv=1.0, exclude_mean=True):
     """
     Creates vectorized arrays of 2D grid coordinates for the rectilinear
     model uv-plane.
@@ -28,10 +27,8 @@ def sampled_uv_vectors(
         Spacing between adjacent v, i.e. :math:`\\Delta v`.  Defaults to 1.
     exclude_mean : bool
         If True, remove the (u, v) = (0, 0) pixel from the model
-        uv-plane coordinate arrays. Defaults to True.
-    move_mean_to_end : bool
-        If True and the (u, v) = (0, 0) pixel is present, move it to the
-        rightmost column of the flattened vectors. Defaults to False.
+        uv-plane coordinate arrays. If False, keep the (u, v) = (0, 0)
+        pixel and move it to the rightmost column. Defaults to True.
 
     Returns
     -------
@@ -46,18 +43,16 @@ def sampled_uv_vectors(
     vs_vec = dv * vs.reshape(1, nu*nv)
 
     is_monopole = (us_vec == 0) & (vs_vec == 0)
-    has_monopole = np.any(is_monopole)
-
-    if exclude_mean and has_monopole:
+    if np.any(is_monopole):
         mask = ~is_monopole[0]
-        us_vec = us_vec[:, mask]
-        vs_vec = vs_vec[:, mask]
-    elif move_mean_to_end and has_monopole:
-        mask = ~is_monopole[0]
-        us_mp = us_vec[:, is_monopole[0]]
-        vs_mp = vs_vec[:, is_monopole[0]]
-        us_vec = np.hstack((us_vec[:, mask], us_mp))
-        vs_vec = np.hstack((vs_vec[:, mask], vs_mp))
+        if exclude_mean:
+            us_vec = us_vec[:, mask]
+            vs_vec = vs_vec[:, mask]
+        else:
+            us_mp = us_vec[:, is_monopole[0]]
+            vs_mp = vs_vec[:, is_monopole[0]]
+            us_vec = np.hstack((us_vec[:, mask], us_mp))
+            vs_vec = np.hstack((vs_vec[:, mask], vs_mp))
 
     return us_vec, vs_vec
 
