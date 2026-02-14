@@ -1331,14 +1331,9 @@ class BuildMatrices():
         )
         nuidft_array = nuidft_matrix_2d(
             self.nu_fg, self.nv_fg, self.du_fg, self.dv_fg,
-            ls_rad, ms_rad, exclude_mean=False
+            ls_rad, ms_rad, exclude_mean=(not self.fit_for_monopole)
         )
         nuidft_array *= self.Fprime_normalization_fg
-        if self.fit_for_monopole:
-            mp_col = nuidft_array[:, self.nuv_fg//2].copy().reshape(-1, 1)
-        nuidft_array = np.delete(nuidft_array, self.nuv_fg//2, axis=1)
-        if self.fit_for_monopole:
-            nuidft_array = np.hstack((nuidft_array, mp_col))
         multi_chan_nuidft_fg = self.sd_block_diag(
             [nuidft_array for _ in range(self.nf)]
         )

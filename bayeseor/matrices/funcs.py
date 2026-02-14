@@ -28,7 +28,9 @@ def sampled_uv_vectors(nu, nv, du=1.0, dv=1.0, exclude_mean=True):
     exclude_mean : bool
         If True, remove the (u, v) = (0, 0) pixel from the model
         uv-plane coordinate arrays. If False, keep the (u, v) = (0, 0)
-        pixel and move it to the rightmost column. Defaults to True.
+        pixel and move it to the rightmost column so it sits next to the
+        LSSM components in the model vector, since the monopole acts as the
+        constant term. Defaults to True.
 
     Returns
     -------
